@@ -19,10 +19,10 @@ public class MigrationState
 /// the new replicas start — three replicas racing to migrate is not a plan.
 /// </summary>
 public class DatabaseMigrator(
-    IServiceScopeFactory scopeFactory,
     MigrationState state,
     IConfiguration configuration,
     IHostEnvironment environment,
+    SystemDbContextFactory systemContexts,
     ILogger<DatabaseMigrator> logger) : BackgroundService
 {
     private const int MaxAttempts = 10;
@@ -40,8 +40,7 @@ public class DatabaseMigrator(
         {
             try
             {
-                using var scope = scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<S4herpDbContext>();
+                await using var db = systemContexts.Create();
 
                 await db.Database.MigrateAsync(stoppingToken);
                 logger.LogInformation("Migrations applied.");
@@ -61,8 +60,11 @@ public class DatabaseMigrator(
             {
                 // SQL Server may still be starting; back off instead of crash-looping.
                 var delay = TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, attempt)));
-                logger.LogWarning("Migration attempt {Attempt}/{Max} failed ({Message}); retrying in {Delay}.",
-                    attempt, MaxAttempts, ex.Message, delay);
+                // Log the exception object, not just its message: a
+                // DbUpdateException's message says nothing, and the SqlException
+                // underneath is the only thing that identifies the failure.
+                logger.LogWarning(ex, "Migration attempt {Attempt}/{Max} failed; retrying in {Delay}.",
+                    attempt, MaxAttempts, delay);
                 await Task.Delay(delay, stoppingToken);
             }
         }
@@ -94,14 +96,28 @@ public class DatabaseMigrator(
         }
     }
 
+    /// <summary>
+    /// Walks up from the working directory looking for db/scripts, so the same
+    /// code works from the published image (/app/db/scripts) and from a source
+    /// run, where the working directory is the project folder.
+    /// </summary>
     private static string? ResolveScriptDirectory()
     {
-        foreach (var candidate in new[] { "db/scripts", "../../db/scripts", "/app/db/scripts" })
+        if (Directory.Exists("/app/db/scripts"))
         {
+            return "/app/db/scripts";
+        }
+
+        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "db", "scripts");
             if (Directory.Exists(candidate))
             {
                 return candidate;
             }
+
+            directory = directory.Parent;
         }
 
         return null;

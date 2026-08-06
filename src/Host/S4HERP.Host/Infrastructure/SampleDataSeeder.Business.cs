@@ -436,6 +436,7 @@ public partial class SampleDataSeeder
         var roles = new (string Code, string Name)[]
         {
             ("FI_ACCOUNTANT", "Financial accountant"),
+            ("FI_CLERK_1000", "Financial clerk, company code 1000"),
             ("FI_APPROVER", "Financial approver"),
             ("BP_MAINTAINER", "Business partner maintainer"),
             ("AUDITOR", "Auditor (display only)"),
@@ -451,14 +452,59 @@ public partial class SampleDataSeeder
         var roleMap = await db.Set<Role>()
             .Where(x => x.TenantId == _tenantId).ToDictionaryAsync(x => x.Code, x => x.Id, ct);
 
-        // A seed user with no password: Phase 3 introduces authentication, and a
-        // seeded credential would outlive the seed.
+        var objectMap = await db.Set<AuthorizationObject>()
+            .Where(x => x.TenantId == _tenantId).ToDictionaryAsync(x => x.Code, x => x.Id, ct);
+        var fieldMap = await db.Set<AuthorizationField>()
+            .Where(x => x.TenantId == _tenantId)
+            .ToDictionaryAsync(x => x.AuthorizationObjectId + "|" + x.Code, x => x.Id, ct);
+
+        // FI_ACCOUNTANT may post in every company code. FI_CLERK_1000 is deliberately
+        // narrower, so the authorisation refusal path has something to refuse.
+        await GrantAsync(roleMap["FI_ACCOUNTANT"], "F_BKPF_BUK",
+            [("BUKRS", "1000", null), ("BUKRS", "1100", null), ("BUKRS", "2000", null),
+             ("ACTVT", "01", null), ("ACTVT", "02", null), ("ACTVT", "03", null)],
+            objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["FI_ACCOUNTANT"], "F_BKPF_BLA",
+            [("BLART", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
+            objectMap, fieldMap, ct);
+
+        await GrantAsync(roleMap["FI_CLERK_1000"], "F_BKPF_BUK",
+            [("BUKRS", "1000", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
+            objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["FI_CLERK_1000"], "F_BKPF_BLA",
+            [("BLART", "SA", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
+            objectMap, fieldMap, ct);
+
+        await GrantAsync(roleMap["AUDITOR"], "F_BKPF_BUK",
+            [("BUKRS", "*", null), ("ACTVT", "03", null)], objectMap, fieldMap, ct);
+
+        // Passwords are absent by design: Phase 3 identifies callers by header in
+        // Development only, and a seeded credential would outlive the seed.
+        await CreateUserAsync("seed.accountant", "Seed Accountant", roleMap["FI_ACCOUNTANT"],
+            orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"], validFrom, ct);
+        await CreateUserAsync("seed.clerk", "Seed Clerk (company code 1000 only)",
+            roleMap["FI_CLERK_1000"], [orgs.CompanyCodes["1000"]],
+            orgs.CompanyCodes["1000"], validFrom, ct);
+        await CreateUserAsync("seed.auditor", "Seed Auditor", roleMap["AUDITOR"],
+            orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"], validFrom, ct,
+            UserType.Auditor);
+    }
+
+    private async Task CreateUserAsync(
+        string userName, string displayName, long roleId, IEnumerable<long> companyCodeIds,
+        long defaultCompanyCodeId, DateOnly validFrom, CancellationToken ct,
+        UserType userType = UserType.Service)
+    {
         var user = new User
         {
-            TenantId = _tenantId, UserName = "seed.accountant", DisplayName = "Seed Accountant",
-            Email = "seed.accountant@example.invalid", UserType = UserType.Service,
+            TenantId = _tenantId, UserName = userName, DisplayName = displayName,
+            Email = $"{userName}@example.invalid", UserType = userType,
+            // Truthful about how these accounts authenticate: in Development the
+            // request header is the identity provider. No credential is seeded.
+            ExternalIdentityProvider = "development-header",
+            ExternalSubjectId = userName,
             Language = "en", TimeZone = "Asia/Phnom_Penh",
-            DefaultCompanyCodeId = orgs.CompanyCodes["1000"], ValidFrom = validFrom,
+            DefaultCompanyCodeId = defaultCompanyCodeId, ValidFrom = validFrom,
             CreatedBy = "SEED",
         };
         db.Add(user);
@@ -466,14 +512,47 @@ public partial class SampleDataSeeder
 
         db.Add(new UserRole
         {
-            TenantId = _tenantId, UserId = user.Id, RoleId = roleMap["FI_ACCOUNTANT"],
+            TenantId = _tenantId, UserId = user.Id, RoleId = roleId,
             ValidFrom = validFrom, CreatedBy = "SEED",
         });
-        foreach (var companyCodeId in orgs.CompanyCodes.Values)
+        foreach (var companyCodeId in companyCodeIds)
         {
             db.Add(new UserCompanyCode
             {
                 TenantId = _tenantId, UserId = user.Id, CompanyCodeId = companyCodeId,
+                CreatedBy = "SEED",
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// One authorisation grant. All values belong to the same grant, which is what
+    /// lets the enforcer refuse to combine fields across separate authorisations.
+    /// </summary>
+    private async Task GrantAsync(
+        long roleId, string objectCode,
+        (string Field, string From, string? To)[] values,
+        Dictionary<string, long> objectMap, Dictionary<string, long> fieldMap,
+        CancellationToken ct)
+    {
+        var objectId = objectMap[objectCode];
+        var grant = new RoleAuthorization
+        {
+            TenantId = _tenantId, RoleId = roleId, AuthorizationObjectId = objectId,
+            CreatedBy = "SEED",
+        };
+        db.Add(grant);
+        await db.SaveChangesAsync(ct);
+
+        foreach (var (field, fromValue, toValue) in values)
+        {
+            db.Add(new RoleAuthorizationValue
+            {
+                TenantId = _tenantId, RoleAuthorizationId = grant.Id,
+                AuthorizationFieldId = fieldMap[objectId + "|" + field],
+                FromValue = fromValue, ToValue = toValue, IsWildcard = fromValue == "*",
                 CreatedBy = "SEED",
             });
         }

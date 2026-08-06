@@ -14,10 +14,17 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         b.HasIndex(x => new { x.TenantId, x.UserName }).IsUnique();
         b.HasIndex(x => new { x.TenantId, x.Email });
 
-        // A dialog or auditor user needs a credential; machine users do not.
+        b.HasIndex(x => new { x.TenantId, x.ExternalIdentityProvider, x.ExternalSubjectId })
+            .IsUnique()
+            .HasFilter("[ExternalSubjectId] IS NOT NULL")
+            .HasDatabaseName("UX_User_ExternalIdentity");
+
+        // An interactive user needs some way to authenticate — a local password
+        // or a federated identity. Requiring a password hash specifically would
+        // block every OIDC user, which is the intended direction of travel.
         b.ToTable(t => t.HasCheckConstraint(
             "CK_User_Credential",
-            "[UserType] NOT IN (1,6) OR [PasswordHash] IS NOT NULL"));
+            "[UserType] NOT IN (1,6) OR [PasswordHash] IS NOT NULL OR [ExternalSubjectId] IS NOT NULL"));
     }
 }
 

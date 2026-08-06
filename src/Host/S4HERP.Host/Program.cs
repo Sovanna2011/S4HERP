@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using S4HERP.Finance.Api;
 using S4HERP.Host;
 using S4HERP.Host.Infrastructure;
 
@@ -12,17 +13,14 @@ if (args.Contains("--healthcheck"))
 
 var builder = WebApplication.CreateBuilder(args);
 
-var connectionString = builder.Configuration.GetConnectionString("Default")
-    ?? throw new InvalidOperationException(
-        "Connection string 'Default' is missing. Set ConnectionStrings__Default.");
-
-builder.Services.AddS4herpModules(connectionString);
+builder.Services.AddS4herpModules(builder.Configuration, builder.Environment);
 
 builder.Services.AddSingleton<MigrationState>();
 builder.Services.AddHostedService<DatabaseMigrator>();
 
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<S4herpExceptionHandler>();
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("sqlserver", tags: ["ready"]);
 
@@ -30,6 +28,7 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseMiddleware<RequestContextMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -53,10 +52,12 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     },
 });
 
+app.MapFinanceEndpoints();
+
 app.MapGet("/", () => Results.Ok(new
 {
     service = "S4HERP",
-    phase = "2 - Database",
+    phase = "3 - Backend (posting engine)",
     status = "running",
     docs = "/openapi/v1.json",
 }));

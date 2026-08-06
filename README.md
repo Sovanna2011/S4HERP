@@ -5,8 +5,8 @@ An S/4HANA-inspired, web-based ERP system.
 | Phase | State |
 | --- | --- |
 | 1 — [Solution Blueprint](docs/blueprint/README.md) | Delivered. Five of its six open questions are still unanswered; the assumptions taken are listed in the Phase 2 report |
-| 2 — [Database](docs/phase2/README.md) | **Delivered and verified.** 83 tables, row-level security, partitioning, seed data, 14/14 integrity rules passing |
-| 3 — Backend | Next: posting engine and G/L |
+| 2 — [Database](docs/phase2/README.md) | Delivered and verified. 83 tables, row-level security, partitioning, seed data, 14/14 integrity rules passing |
+| 3 — [Backend](docs/phase3/README.md) | **Increment 1 delivered.** Posting engine, simulation, idempotency, gapless numbering, authorisation, trial balance. 25/25 acceptance checks passing |
 | 4 — SAPUI5 frontend | Blocked on the SAPUI5 licence question |
 | 5 — Testing and deployment | — |
 
@@ -34,6 +34,12 @@ then seeds the §24 sample data. Readiness stays red until all of that completes
 ```bash
 curl http://localhost:8080/
 curl http://localhost:8080/health/ready
+```
+
+Run the acceptance suites:
+
+```bash
+./db/tests/posting-engine.sh                 # 25 posting-engine checks over HTTP
 ```
 
 Verify the database-level integrity rules:
@@ -80,13 +86,32 @@ Compose composes from the variables above. Set
 
 ## Endpoints
 
-Business endpoints arrive with the posting engine in Phase 3.
-
 | Method | Route | Description |
 | --- | --- | --- |
 | `GET` | `/` | Service banner |
 | `GET` | `/health/live` | Liveness — the process is up |
 | `GET` | `/health/ready` | Readiness — SQL Server reachable and the schema current |
+| `POST` | `/api/v1/finance/journal-entries` | Post an accounting document (FB50) |
+| `POST` | `/api/v1/finance/journal-entries/simulate` | Full accounting impact without posting |
+| `GET` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}` | Display a document (FB03) |
+| `GET` | `/api/v1/finance/reports/trial-balance` | Trial balance, derived from the journal |
+
+Every call is authorised server-side and denied by default. In Development the
+caller is named by an `X-S4HERP-User` header — see
+[Phase 3](docs/phase3/README.md#development-mode-authentication) for how that is
+gated, and why the host refuses to start if it is enabled elsewhere.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/finance/journal-entries \
+  -H 'X-S4HERP-User: seed.accountant' -H 'Content-Type: application/json' \
+  -d '{"companyCode":"1000","documentType":"SA","documentDate":"2026-04-10",
+       "postingDate":"2026-04-10","currency":"USD",
+       "lines":[{"postingKey":"40","amount":250,"glAccount":"6000000000","costCenter":"CC101000"},
+                {"postingKey":"50","amount":250,"glAccount":"1000100000"}]}'
+
+curl 'http://localhost:8080/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026' \
+  -H 'X-S4HERP-User: seed.accountant'
+```
 
 ## Connecting to the database
 
@@ -143,13 +168,14 @@ scaffolding a migration works with no database running.
 ├── compose.yaml                     api + db services, volume, health checks
 ├── Directory.Build.props            shared TFM and analyser settings
 ├── Directory.Packages.props         central package versions
-├── dotnet.sh                        .NET 10 SDK in a container
 ├── db/
 │   ├── scripts/                     RLS, partitioning, grants, immutability guards
-│   └── tests/                       database-level integrity assertions
+│   └── tests/                       integrity + posting-engine acceptance suites
+├── dotnet.sh · run-host.sh          SDK in a container; run the host from source
 ├── docs/
 │   ├── blueprint/                   Phase 1 design
 │   ├── phase2/                      table catalogue, ERDs, phase report
+│   ├── phase3/                      posting-engine phase report
 │   └── adr/                         decisions taken after Phase 1
 └── src/
     ├── BuildingBlocks/              shared domain + infrastructure

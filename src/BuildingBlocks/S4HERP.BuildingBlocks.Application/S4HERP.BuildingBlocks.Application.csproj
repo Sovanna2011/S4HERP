@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>S4HERP.BuildingBlocks.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../S4HERP.BuildingBlocks.Domain/S4HERP.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="../S4HERP.BuildingBlocks.Infrastructure/S4HERP.BuildingBlocks.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

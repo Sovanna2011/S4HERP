@@ -40,6 +40,7 @@ public partial class SampleDataSeeder
 
         AddLine(invoice, ledger, 1, "01", DebitCredit.Debit, AccountType.Customer,
             amount: 1100m, usd, usd, 1m,
+            glAccountId: coa.Accounts["1200000000"],
             partnerId: partners.Customer, role: "FI_CUST",
             dueDate: postingDate.AddDays(30));
         AddLine(invoice, ledger, 2, "50", DebitCredit.Credit, AccountType.GeneralLedger,
@@ -69,6 +70,7 @@ public partial class SampleDataSeeder
             glAccountId: coa.Accounts["1300000000"], taxCode: "V1", isTaxLine: true);
         AddLine(fxInvoice, ledger, 3, "31", DebitCredit.Credit, AccountType.Vendor,
             amount: -4_400_000m, khr, usd, khrToUsd,
+            glAccountId: coa.Accounts["2100000000"],
             partnerId: partners.Vendor, role: "FI_VEND",
             dueDate: postingDate.AddDays(30));
 

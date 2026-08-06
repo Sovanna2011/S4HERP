@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>S4HERP.Finance.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../S4HERP.Finance.Domain/S4HERP.Finance.Domain.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/S4HERP.BuildingBlocks.Application/S4HERP.BuildingBlocks.Application.csproj" />
+    <!-- Finance derives CO objects and posts partner lines; both dependencies
+         run Finance -> module, never the reverse. -->
+    <ProjectReference Include="../../Controlling/S4HERP.Controlling.Domain/S4HERP.Controlling.Domain.csproj" />
+    <ProjectReference Include="../../BusinessPartner/S4HERP.BusinessPartner.Domain/S4HERP.BusinessPartner.Domain.csproj" />
+    <ProjectReference Include="../../Audit/S4HERP.Audit.Domain/S4HERP.Audit.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

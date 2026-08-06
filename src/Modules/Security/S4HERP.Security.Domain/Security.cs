@@ -44,6 +44,15 @@ public class User : AuditableEntity, IValidityDated, IDeactivatable
     public long? DefaultCompanyCodeId { get; set; }
 
     [MaxLength(256)] public string? PasswordHash { get; set; }
+
+    /// <summary>
+    /// Federated identity. An interactive user authenticated by an external
+    /// provider legitimately has no local password hash, which is why the
+    /// credential check accepts either.
+    /// </summary>
+    [MaxLength(60)] public string? ExternalIdentityProvider { get; set; }
+    [MaxLength(200)] public string? ExternalSubjectId { get; set; }
+
     public DateTime? PasswordChangedAtUtc { get; set; }
     public bool MustChangePassword { get; set; }
     public bool MfaEnabled { get; set; }
