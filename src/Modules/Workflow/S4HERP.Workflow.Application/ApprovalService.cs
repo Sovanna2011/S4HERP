@@ -170,6 +170,60 @@ public sealed class ApprovalService(
         };
     }
 
+    public async Task<ApprovalDecisionResult> WithdrawAsync(
+        string objectType, string objectId, string? comment,
+        CancellationToken cancellationToken = default)
+    {
+        var instance = await db.Set<WorkflowInstance>()
+            .Include(w => w.Steps)
+            .SingleOrDefaultAsync(w => w.ObjectType == objectType
+                                       && w.ObjectId == objectId
+                                       && w.Status == WorkflowStatus.Pending, cancellationToken)
+            ?? throw new BusinessRuleException(
+                ApprovalErrors.NoPendingWorkflow,
+                $"{objectType} {objectId} has no pending approval to withdraw.");
+
+        // Only the people the approvers are checking. An approver who could
+        // withdraw rather than reject would erase the evidence that they saw it.
+        if (!IsOwnWork(instance))
+        {
+            throw new AuthorizationException(
+                $"{objectType} {objectId} was submitted by {instance.SubmittedBy}. " +
+                "Only the submitter or the person who created it may withdraw it.");
+        }
+
+        // Once somebody has approved a step, withdrawal would quietly undo a
+        // decision that was recorded. Reject it instead, on the record.
+        if (instance.Steps.Any(s => s.Decision == StepDecision.Approved))
+        {
+            throw new BusinessRuleException(
+                ApprovalErrors.AlreadyDecided,
+                $"{objectType} {objectId} has already been approved at one or more steps " +
+                "and can no longer be withdrawn.");
+        }
+
+        foreach (var step in instance.Steps.Where(s => s.Decision == StepDecision.Pending))
+        {
+            step.Decision = StepDecision.Skipped;
+            step.DecidedBy = user.UserName;
+            step.DecidedAtUtc = clock.UtcNow;
+            step.Comment = comment is { Length: > 0 }
+                ? $"Withdrawn by the submitter: {comment}"
+                : "Withdrawn by the submitter.";
+        }
+
+        instance.Status = WorkflowStatus.Withdrawn;
+        instance.CompletedAtUtc = clock.UtcNow;
+
+        return new ApprovalDecisionResult
+        {
+            Outcome = ApprovalOutcome.Withdrawn,
+            DecidedStep = 0,
+            RemainingSteps = 0,
+            Steps = instance.Steps.OrderBy(s => s.Sequence).Select(ToView).ToList(),
+        };
+    }
+
     public async Task<WorkflowStateView?> GetAsync(
         string objectType, string objectId, CancellationToken cancellationToken = default)
     {

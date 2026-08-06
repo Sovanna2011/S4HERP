@@ -37,6 +37,24 @@ sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
                 case "Cancelled": return "Error";
                 default: return "None";
             }
+        },
+
+        workflowStatusState(status) {
+            switch (status) {
+                case "Approved": return "Success";
+                case "Rejected": return "Error";
+                case "Withdrawn": return "Warning";
+                default: return "Information";
+            }
+        },
+
+        stepDecisionState(decision) {
+            switch (decision) {
+                case "Approved": return "Success";
+                case "Rejected": return "Error";
+                case "Skipped": return "None";
+                default: return "Information";
+            }
         }
     };
 });

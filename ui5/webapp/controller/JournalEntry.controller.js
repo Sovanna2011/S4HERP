@@ -133,28 +133,43 @@ sap.ui.define([
             });
         },
 
+        async onPark() {
+            this._recalculate();
+            // Same payload, same derivation, different endpoint. The document is
+            // written and numbered but stays out of the ledger until it is
+            // submitted and approved.
+            await this._send("/api/v1/finance/journal-entries/park", (result) => {
+                MessageToast.show(this.text("parkedOk", [result.documentNumberFormatted]));
+                this._rememberAndOpen(result);
+            }, /* idempotent */ true);
+        },
+
+        _rememberAndOpen(result) {
+            this.appContext().addRecent(this.getContext(), {
+                key: result.documentNumberFormatted,
+                title: result.documentNumberFormatted,
+                subtitle: this.text("journalEntryTitle"),
+                route: "journalDisplay",
+                params: {
+                    companyCode: result.companyCode,
+                    fiscalYear: result.fiscalYear,
+                    documentNumber: result.documentNumber
+                }
+            });
+
+            this.getRouter().navTo("journalDisplay", {
+                companyCode: result.companyCode,
+                fiscalYear: result.fiscalYear,
+                documentNumber: result.documentNumber
+            });
+        },
+
         async onPost() {
             this._recalculate();
             await this._send("/api/v1/finance/journal-entries", (result) => {
                 MessageToast.show(this.text("postedOk", [result.documentNumberFormatted]));
 
-                this.appContext().addRecent(this.getContext(), {
-                    key: result.documentNumberFormatted,
-                    title: result.documentNumberFormatted,
-                    subtitle: this.text("journalEntryTitle"),
-                    route: "journalDisplay",
-                    params: {
-                        companyCode: result.companyCode,
-                        fiscalYear: result.fiscalYear,
-                        documentNumber: result.documentNumber
-                    }
-                });
-
-                this.getRouter().navTo("journalDisplay", {
-                    companyCode: result.companyCode,
-                    fiscalYear: result.fiscalYear,
-                    documentNumber: result.documentNumber
-                });
+                this._rememberAndOpen(result);
             }, /* idempotent */ true);
         },
 

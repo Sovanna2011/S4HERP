@@ -1,0 +1,56 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.Approvals"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f">
+    <f:DynamicPage id="approvalsPage" headerExpanded="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title text="{i18n>approvalsTitle}"/></f:heading>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                    <Button icon="sap-icon://refresh" press=".onRefresh" tooltip="{i18n>refresh}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <Text text="{i18n>approvalsDescription}"/>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <Table id="approvalsTable"
+                   items="{/items}"
+                   noDataText="{i18n>approvalsEmpty}">
+                <columns>
+                    <Column><Text text="{i18n>document}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>companyCode}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>submittedByColumn}"/></Column>
+                    <Column minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>step}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>action}"/></Column>
+                </columns>
+                <items>
+                    <ColumnListItem type="Navigation" press=".onOpen">
+                        <cells>
+                            <ObjectIdentifier title="{documentId}"/>
+                            <Text text="{companyCode}"/>
+                            <ObjectNumber number="{path: 'amount', formatter: '.formatter.amount'}"/>
+                            <Text text="{submittedBy}"/>
+                            <Text text="{sequence} · {approverRoleCode}"/>
+                            <!-- Shown, not hidden: an approver needs to see that a
+                                 document is waiting and understand why they in
+                                 particular cannot release it. -->
+                            <ObjectStatus text="{= ${makerCheckerBlocks}
+                                              ? ${i18n>makerCheckerBlocked}
+                                              : ${i18n>awaitingYou} }"
+                                          state="{= ${makerCheckerBlocks} ? 'Warning' : 'Information' }"/>
+                        </cells>
+                    </ColumnListItem>
+                </items>
+            </Table>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

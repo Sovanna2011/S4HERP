@@ -283,16 +283,14 @@ src/Host/S4HERP.Host/
 ## Limitations
 
 1. **A parked document cannot be edited.** `TR_JournalEntryLine_NoUpdate` blocks
-   every line update, by design, so correcting a parked document means deleting
-   the header — permitted while it is not posted, and it cascades to the lines —
-   and parking a fresh one, which consumes a document number. There is no delete
-   endpoint yet, so today a rejected document simply stays `Rejected` and a new
-   one is parked. Real FV50 keeps parked lines editable; matching that means
-   either exempting pre-posting documents from the trigger or holding parked
-   lines in a separate staging table, and that is a decision worth taking on
+   every line update, by design, so correcting a parked document means discarding
+   it and parking a fresh one, which consumes a document number.
+   [Increment 4](increment-4-lifecycle.md) added the discard endpoint, so this is
+   no longer a dead end — but real FV50 keeps parked lines editable, and matching
+   that means either exempting pre-posting documents from the trigger or holding
+   parked lines in a separate staging table. That is a decision worth taking on
    purpose rather than in passing.
-2. **No withdraw.** A submitter cannot pull back their own document; only an
-   approver can end the workflow, by rejecting it.
+2. ~~**No withdraw.**~~ Added by [increment 4](increment-4-lifecycle.md).
 3. **No substitute or deputy approver.** If nobody holding the role is available,
    the document waits. Validity-dated role assignment exists and is the natural
    place to build this on.
@@ -308,10 +306,8 @@ src/Host/S4HERP.Host/
    in the company code's local currency, which is right, but a rule can only be
    configured in a currency some company code actually uses — there is no
    translation of a threshold across currencies.
-8. **The front end has no approval screens.** The API is complete; the parked and
-   pending statuses are not yet visible in the OpenUI5 application, and Phase 4's
-   limitation 6 ("the journal entry screen posts directly") still stands for the
-   UI.
+8. ~~**The front end has no approval screens.**~~ Added by
+   [increment 4](increment-4-lifecycle.md).
 9. **`SegregationOfDutiesRule` is still not enforced at runtime.** It is a
    rulebook, and this increment deliberately relies on that. A conflicting grant
    should at minimum be reported; nothing reports it today.

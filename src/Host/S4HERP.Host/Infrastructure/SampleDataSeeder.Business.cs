@@ -464,9 +464,12 @@ public partial class SampleDataSeeder
 
         // FI_ACCOUNTANT may post in every company code. FI_CLERK_1000 is deliberately
         // narrower, so the authorisation refusal path has something to refuse.
+        // ACTVT 06 is delete, and it only ever reaches a document that never got
+        // to the ledger — a posted one is refused by the handler regardless.
         await GrantAsync(roleMap["FI_ACCOUNTANT"], "F_BKPF_BUK",
             [("BUKRS", "1000", null), ("BUKRS", "1100", null), ("BUKRS", "2000", null),
-             ("ACTVT", "01", null), ("ACTVT", "02", null), ("ACTVT", "03", null)],
+             ("ACTVT", "01", null), ("ACTVT", "02", null), ("ACTVT", "03", null),
+             ("ACTVT", "06", null)],
             objectMap, fieldMap, ct);
         await GrantAsync(roleMap["FI_ACCOUNTANT"], "F_BKPF_BLA",
             [("BLART", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
@@ -510,7 +513,8 @@ public partial class SampleDataSeeder
         // Maker-checker is the runtime control that stops it becoming a self-approval,
         // and a control nobody in the seed can trigger is a control nobody has tested.
         await GrantAsync(roleMap["FI_SUPERVISOR"], "F_BKPF_BUK",
-            [("BUKRS", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
+            [("BUKRS", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null),
+             ("ACTVT", "06", null)],
             objectMap, fieldMap, ct);
         await GrantAsync(roleMap["FI_SUPERVISOR"], "F_BKPF_BLA",
             [("BLART", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],

@@ -447,6 +447,87 @@ else
   echo "  FAIL  difference ${DIFF3:-missing}"; FAILURES+=("workflow balance"); fail=$((fail+1))
 fi
 
+echo "== Withdraw =="
+
+check "A document parks and is submitted" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries/park" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "$(balanced_amount WF-WD 90.00)"
+WDDOC=$(json_field documentNumber)
+check "...and enters approval" 200 - \
+  -X POST "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC/submit" -H "$ACCOUNTANT"
+
+check "An approver cannot withdraw someone else's submission" 403 NOT_AUTHORIZED \
+  -X POST "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC/withdraw" \
+  -H "$APPROVER" -H "$JSON" -d '{}'
+
+check "The submitter can" 200 - \
+  -X POST "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC/withdraw" \
+  -H "$ACCOUNTANT" -H "$JSON" -d '{"comment":"Wrong period."}'
+assert_body "...and the document is Parked again" \
+  '"documentStatus":"Parked".*"approvalOutcome":"Withdrawn"'
+
+check "A withdrawn document can be submitted again" 200 - \
+  -X POST "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC/submit" -H "$ACCOUNTANT"
+assert_body "...opening a fresh approval" '"approvalOutcome":"Pending"'
+
+echo "== Discard =="
+
+check "A pending document cannot be discarded" 422 DOCUMENT_NOT_DISCARDABLE \
+  -X DELETE "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC" -H "$ACCOUNTANT"
+
+check "...so withdraw it first" 200 - \
+  -X POST "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC/withdraw" \
+  -H "$ACCOUNTANT" -H "$JSON" -d '{}'
+
+check "Someone without the delete activity is refused" 403 NOT_AUTHORIZED \
+  -X DELETE "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC" -H "$CLERK"
+
+TB_BEFORE_DISCARD=$(trial_balance_debit)
+
+check "A parked document can be discarded" 200 - \
+  -X DELETE "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC" -H "$ACCOUNTANT"
+assert_body "...reporting what it discarded" '"previousStatus":"Parked".*"linesDeleted":2'
+
+check "...and it is gone" 404 NOT_FOUND \
+  "$BASE/api/v1/finance/journal-entries/1000/2026/$WDDOC" -H "$ACCOUNTANT"
+
+TB_AFTER_DISCARD=$(trial_balance_debit)
+if awk -v a="$TB_BEFORE_DISCARD" -v b="$TB_AFTER_DISCARD" 'BEGIN{exit !(a==b)}'; then
+  echo "  PASS  ...leaving the ledger untouched"; pass=$((pass+1))
+else
+  echo "  FAIL  trial balance moved on discard: $TB_BEFORE_DISCARD -> $TB_AFTER_DISCARD"
+  FAILURES+=("discard touched the ledger"); fail=$((fail+1))
+fi
+
+# The number the discarded document consumed is spent. Gapless numbering means
+# issued is issued; reusing it would defeat the point of the range.
+check "The next document takes the next number, not the discarded one" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries/park" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "$(balanced_amount WF-AFTER 40.00)"
+NEXTDOC=$(json_field documentNumber)
+if [ -n "$NEXTDOC" ] && [ "$NEXTDOC" -gt "$WDDOC" ]; then
+  echo "  PASS  ...$NEXTDOC follows the discarded $WDDOC"; pass=$((pass+1))
+else
+  echo "  FAIL  next number ${NEXTDOC:-missing} did not follow $WDDOC"
+  FAILURES+=("discarded number reused"); fail=$((fail+1))
+fi
+
+check "A posted document can never be discarded" 422 DOCUMENT_NOT_DISCARDABLE \
+  -X DELETE "$BASE/api/v1/finance/journal-entries/1000/2026/$PARKED" -H "$ACCOUNTANT"
+
+check "A rejected document can be discarded" 200 - \
+  -X DELETE "$BASE/api/v1/finance/journal-entries/1000/2026/$REJDOC" -H "$ACCOUNTANT"
+assert_body "...closing the lifecycle dead-end" '"previousStatus":"Rejected"'
+
+check "Trial balance still foots after discards" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF4=$(json_field difference)
+if [ -n "$DIFF4" ] && awk -v d="$DIFF4" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...difference $DIFF4"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF4:-missing}"; FAILURES+=("post-discard balance"); fail=$((fail+1))
+fi
+
 echo
 printf '%s/%s passed\n' "$pass" "$((pass+fail))"
 if [ "$fail" -gt 0 ]; then

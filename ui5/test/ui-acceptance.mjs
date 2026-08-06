@@ -162,6 +162,74 @@ const difference = await page
 check('Trial balance foots to zero in the UI',
   Number(difference.replace(/[^0-9.-]/g, '')) === 0, difference);
 
+console.log('\n== Park, submit, approve, through the UI ==');
+// seed.supervisor holds both F_BKPF_BUK/01 and W_APPROVE — an SOD003 conflict
+// seeded on purpose. Parking as this user is what makes the refusal below
+// maker-checker rather than the weaker "you are not an approver at all".
+await setUser('seed.supervisor');
+await open('#/journal/create');
+await page.waitForSelector(ID('journalEntry', 'lineTable'), { timeout: 30000 });
+await fillLine(0, '6000000000', '75.00', 'CC101000');
+await fillLine(1, '1000100000', '75.00', '');
+
+await page.locator(ID('journalEntry', 'parkButton')).click();
+await page.waitForURL(/#\/journal\/display\//, { timeout: 30000 });
+await page.waitForSelector(ID('documentDisplay', 'submitButton'), { state: 'visible', timeout: 30000 });
+
+const parkedNumber = (await page.locator(ID('documentDisplay', 'documentTitle')).innerText()).trim();
+check('Parking opens the document', /^KSS-1000-2026-SA-\d{10}$/.test(parkedNumber), parkedNumber);
+check('A parked document offers Submit, not Reverse',
+  await page.locator(ID('documentDisplay', 'submitButton')).isVisible()
+  && !(await page.locator(ID('documentDisplay', 'reverseButton')).isVisible()));
+
+await page.locator(ID('documentDisplay', 'submitButton')).click();
+await page.waitForSelector(ID('documentDisplay', 'approveButton'), { state: 'visible', timeout: 30000 });
+check('Submitting shows the approval history',
+  await page.locator(ID('documentDisplay', 'workflowPanel')).isVisible());
+check('...with the step still pending',
+  (await page.locator(ID('documentDisplay', 'workflowSteps')).innerText()).includes('FI_APPROVER'));
+
+// The maker's own approve button is on screen. It is the server that refuses —
+// hiding it would be the wrong lesson (§22.1).
+await page.locator(ID('documentDisplay', 'approveButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Approving my own work.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+await page.waitForSelector('.sapMMessageBox', { state: 'visible', timeout: 30000 });
+const makerCheckerText = await page.locator('.sapMMessageBox').innerText();
+check('The maker approving their own document is refused by the server',
+  /maker-checker|cannot decide|submitted or created/i.test(makerCheckerText),
+  makerCheckerText.slice(0, 120));
+await page.locator('.sapMMessageBox button').first().click();
+
+console.log('\n== The approver\'s inbox ==');
+await setUser('seed.approver');
+await open('#/approvals');
+await page.waitForSelector(ID('approvals', 'approvalsTable'), { timeout: 30000 });
+const inbox = await page.locator(ID('approvals', 'approvalsTable')).innerText();
+check('The inbox lists the submitted document', inbox.includes(parkedNumber), inbox.slice(0, 120));
+
+const inboxRow = page.locator(ID('approvals', 'approvalsTable') + ' tbody tr')
+  .filter({ hasText: parkedNumber });
+check('...and can be opened from it', (await inboxRow.count()) === 1);
+await inboxRow.first().click();
+await page.waitForURL(/#\/journal\/display\//, { timeout: 30000 });
+await page.waitForSelector(ID('documentDisplay', 'approveButton'), { state: 'visible', timeout: 30000 });
+check('Opening from the inbox shows the document itself',
+  (await page.locator(ID('documentDisplay', 'documentTitle')).innerText()).trim() === parkedNumber);
+check('...with its lines, so the approver sees what they are releasing',
+  (await page.locator(ID('documentDisplay', 'documentLines') + ' tbody tr').count()) >= 2);
+
+await page.locator(ID('documentDisplay', 'approveButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Checked against the invoice.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+await page.waitForSelector(ID('documentDisplay', 'reverseButton'), { state: 'visible', timeout: 30000 });
+check('Approving posts the document',
+  (await page.locator(ID('documentDisplay', 'documentPage')).innerText()).includes('Posted'));
+check('...and the approval history records who approved it',
+  (await page.locator(ID('documentDisplay', 'workflowSteps')).innerText()).includes('seed.approver'));
+
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });
 await page.waitForSelector(ID('trialBalance', 'balanceTable'), { timeout: 30000 });

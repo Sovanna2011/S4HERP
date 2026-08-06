@@ -116,6 +116,39 @@ public static class FinanceEndpoints
             .WithName("RejectJournalEntry")
             .WithSummary("Reject the document, with a mandatory reason.");
 
+        journal.MapPost("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/withdraw", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                ApprovalDecisionBody? body, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new WithdrawJournalEntryCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                    Comment = body?.Comment,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("WithdrawJournalEntry")
+            .WithSummary("Pull a submitted document back out of approval.");
+
+        journal.MapDelete("/{companyCode}/{fiscalYear:int}/{documentNumber:long}", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new DeleteJournalEntryCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("DeleteJournalEntry")
+            .WithSummary("Discard a document that never reached the ledger.");
+
         journal.MapGet("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/workflow", async (
                 string companyCode, int fiscalYear, long documentNumber,
                 IDispatcher dispatcher, CancellationToken ct) =>

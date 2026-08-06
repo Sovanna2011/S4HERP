@@ -30,6 +30,16 @@ public interface IApprovalService
     Task<ApprovalDecisionResult> DecideAsync(
         ApprovalDecisionRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Pulls a pending workflow back. Only the submitter or the object's creator
+    /// may — the exact inverse of maker-checker, and for the same reason: an
+    /// approver who could withdraw a document instead of rejecting it would leave
+    /// no record of having seen it.
+    /// </summary>
+    Task<ApprovalDecisionResult> WithdrawAsync(
+        string objectType, string objectId, string? comment,
+        CancellationToken cancellationToken = default);
+
     /// <summary>The most recent workflow for an object, decided or not.</summary>
     Task<WorkflowStateView?> GetAsync(
         string objectType, string objectId, CancellationToken cancellationToken = default);
@@ -61,6 +71,9 @@ public enum ApprovalOutcome
 
     /// <summary>A step was rejected. Remaining steps are skipped.</summary>
     Rejected = 4,
+
+    /// <summary>The submitter pulled it back before anyone decided.</summary>
+    Withdrawn = 5,
 }
 
 public sealed record StartApprovalRequest
@@ -147,6 +160,8 @@ public static class ApprovalErrors
     public const string NoPendingWorkflow = "NO_PENDING_WORKFLOW";
     public const string AlreadyInApproval = "ALREADY_IN_APPROVAL";
     public const string CommentRequired = "REJECTION_COMMENT_REQUIRED";
+    public const string NotTheSubmitter = "NOT_THE_SUBMITTER";
+    public const string AlreadyDecided = "APPROVAL_ALREADY_DECIDED";
 }
 
 /// <summary>

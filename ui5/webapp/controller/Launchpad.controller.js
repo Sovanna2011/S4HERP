@@ -20,6 +20,10 @@ sap.ui.define([
         {
             key: "TRIAL", name: "trialBalanceTile", transactionCode: "F.01",
             module: "Finance", icon: "sap-icon://table-view", route: "trialBalance"
+        },
+        {
+            key: "APPROVALS", name: "approvalsTile", transactionCode: "SBWP",
+            module: "Workflow", icon: "sap-icon://approvals", route: "approvals"
         }
     ];
 

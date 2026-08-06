@@ -34,6 +34,46 @@
         </f:header>
 
         <f:content>
+          <VBox>
+            <!-- Only present once a document has been through approval, so it does
+                 not take up room on the ordinary posted document. -->
+            <Panel id="workflowPanel"
+                   headerText="{i18n>approvalHistory}"
+                   expandable="true"
+                   expanded="true"
+                   visible="{= !!${workflow>/status} }">
+                <content>
+                    <ObjectStatus id="workflowStatus"
+                                  class="sapUiSmallMarginBegin"
+                                  title="{i18n>approvalStatus}"
+                                  text="{workflow>/status}"
+                                  state="{path: 'workflow>/status', formatter: '.formatter.workflowStatusState'}"/>
+                    <Text class="sapUiSmallMargin"
+                          text="{i18n>submittedBy} {workflow>/submittedBy}"/>
+                    <Table id="workflowSteps" items="{workflow>/steps}">
+                        <columns>
+                            <Column width="4rem"><Text text="{i18n>step}"/></Column>
+                            <Column><Text text="{i18n>approverRole}"/></Column>
+                            <Column><Text text="{i18n>decision}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>decidedBy}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>comment}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <Text text="{workflow>sequence}"/>
+                                    <Text text="{workflow>approverRoleCode}"/>
+                                    <ObjectStatus text="{workflow>decision}"
+                                                  state="{path: 'workflow>decision', formatter: '.formatter.stepDecisionState'}"/>
+                                    <Text text="{workflow>decidedBy}"/>
+                                    <Text text="{workflow>comment}"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+
             <Table id="documentLines" items="{/lines}">
                 <columns>
                     <Column width="4rem"><Text text="{i18n>lineNumber}"/></Column>
@@ -61,15 +101,44 @@
                     </ColumnListItem>
                 </items>
             </Table>
+          </VBox>
         </f:content>
 
         <f:footer>
             <OverflowToolbar>
                 <ToolbarSpacer/>
+                <!-- Buttons are hidden by status for usability only. Every one of
+                     these actions is refused server-side on its own authority; §22.1
+                     is explicit that hiding a control is not authorisation, and the
+                     acceptance suite posts as an unauthorised user to prove it. -->
+                <Button id="discardButton"
+                        text="{i18n>discard}"
+                        type="Transparent"
+                        visible="{= ${/status} === 'Parked' || ${/status} === 'Rejected' }"
+                        press=".onDiscard"/>
+                <Button id="withdrawButton"
+                        text="{i18n>withdraw}"
+                        visible="{= ${/status} === 'PendingApproval' }"
+                        press=".onWithdraw"/>
+                <Button id="rejectButton"
+                        text="{i18n>reject}"
+                        type="Reject"
+                        visible="{= ${/status} === 'PendingApproval' }"
+                        press=".onReject"/>
+                <Button id="approveButton"
+                        text="{i18n>approve}"
+                        type="Accept"
+                        visible="{= ${/status} === 'PendingApproval' }"
+                        press=".onApprove"/>
+                <Button id="submitButton"
+                        text="{i18n>submitForApproval}"
+                        type="Emphasized"
+                        visible="{= ${/status} === 'Parked' }"
+                        press=".onSubmit"/>
                 <Button id="reverseButton"
                         text="{i18n>reverse}"
                         type="Reject"
-                        enabled="{= ${/status} === 'Posted' }"
+                        visible="{= ${/status} === 'Posted' }"
                         press=".onReverse"/>
             </OverflowToolbar>
         </f:footer>

@@ -5,12 +5,18 @@
     "type": "application",
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
-    "applicationVersion": { "version": "1.0.0" },
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
     "i18n": "i18n/i18n.properties"
   },
   "sap.ui": {
     "technology": "UI5",
-    "deviceTypes": { "desktop": true, "tablet": true, "phone": true }
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
   },
   "sap.ui5": {
     "rootView": {
@@ -28,13 +34,20 @@
         "sap.ui.layout": {}
       }
     },
-    "contentDensities": { "compact": true, "cozy": true },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
     "models": {
       "i18n": {
         "type": "sap.ui.model.resource.ResourceModel",
         "settings": {
           "bundleName": "s4herp.ui.i18n.i18n",
-          "supportedLocales": ["", "en", "km"],
+          "supportedLocales": [
+            "",
+            "en",
+            "km"
+          ],
           "fallbackLocale": "en"
         }
       }
@@ -50,16 +63,58 @@
         "transition": "slide"
       },
       "routes": [
-        { "pattern": "", "name": "launchpad", "target": "launchpad" },
-        { "pattern": "journal/create", "name": "journalCreate", "target": "journalEntry" },
-        { "pattern": "journal/display/{companyCode}/{fiscalYear}/{documentNumber}", "name": "journalDisplay", "target": "documentDisplay" },
-        { "pattern": "reports/trial-balance", "name": "trialBalance", "target": "trialBalance" }
+        {
+          "pattern": "",
+          "name": "launchpad",
+          "target": "launchpad"
+        },
+        {
+          "pattern": "journal/create",
+          "name": "journalCreate",
+          "target": "journalEntry"
+        },
+        {
+          "pattern": "journal/display/{companyCode}/{fiscalYear}/{documentNumber}",
+          "name": "journalDisplay",
+          "target": "documentDisplay"
+        },
+        {
+          "pattern": "reports/trial-balance",
+          "name": "trialBalance",
+          "target": "trialBalance"
+        },
+        {
+          "pattern": "approvals",
+          "name": "approvals",
+          "target": "approvals"
+        }
       ],
       "targets": {
-        "launchpad": { "viewId": "launchpad", "viewName": "Launchpad", "viewLevel": 1 },
-        "journalEntry": { "viewId": "journalEntry", "viewName": "JournalEntry", "viewLevel": 2 },
-        "documentDisplay": { "viewId": "documentDisplay", "viewName": "DocumentDisplay", "viewLevel": 2 },
-        "trialBalance": { "viewId": "trialBalance", "viewName": "TrialBalance", "viewLevel": 2 }
+        "launchpad": {
+          "viewId": "launchpad",
+          "viewName": "Launchpad",
+          "viewLevel": 1
+        },
+        "journalEntry": {
+          "viewId": "journalEntry",
+          "viewName": "JournalEntry",
+          "viewLevel": 2
+        },
+        "documentDisplay": {
+          "viewId": "documentDisplay",
+          "viewName": "DocumentDisplay",
+          "viewLevel": 2
+        },
+        "trialBalance": {
+          "viewId": "trialBalance",
+          "viewName": "TrialBalance",
+          "viewLevel": 2
+        },
+        "approvals": {
+          "viewId": "approvals",
+          "viewName": "Approvals",
+          "viewLevel": 2
+        }
       }
     }
   }

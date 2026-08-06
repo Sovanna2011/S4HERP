@@ -3,8 +3,12 @@ sap.ui.define([
     "sap/ui/model/json/JSONModel",
     "s4herp/ui/model/formatter",
     "sap/m/MessageBox",
-    "sap/m/MessageToast"
-], (BaseController, JSONModel, formatter, MessageBox, MessageToast) => {
+    "sap/m/MessageToast",
+    "sap/m/Dialog",
+    "sap/m/Button",
+    "sap/m/TextArea"
+], (BaseController, JSONModel, formatter, MessageBox, MessageToast,
+    Dialog, Button, TextArea) => {
     "use strict";
 
     return BaseController.extend("s4herp.ui.controller.DocumentDisplay", {
@@ -12,8 +16,17 @@ sap.ui.define([
 
         onInit() {
             this.getView().setModel(new JSONModel({ lines: [] }));
+            this.getView().setModel(new JSONModel({}), "workflow");
             this.getRouter().getRoute("journalDisplay")
                 .attachPatternMatched(this._onRouteMatched, this);
+        },
+
+        _path(suffix) {
+            return "/api/v1/finance/journal-entries/"
+                + encodeURIComponent(this._key.companyCode) + "/"
+                + encodeURIComponent(this._key.fiscalYear) + "/"
+                + encodeURIComponent(this._key.documentNumber)
+                + (suffix || "");
         },
 
         _onRouteMatched(event) {
@@ -26,17 +39,156 @@ sap.ui.define([
             view.setBusy(true);
             try {
                 const result = await this.api().request(
-                    "/api/v1/finance/journal-entries/"
-                    + encodeURIComponent(this._key.companyCode) + "/"
-                    + encodeURIComponent(this._key.fiscalYear) + "/"
-                    + encodeURIComponent(this._key.documentNumber),
-                    { context: this.contextData() });
+                    this._path(), { context: this.contextData() });
                 view.getModel().setData(result);
+                await this._loadWorkflow();
             } catch (error) {
                 MessageBox.error(error.message, { title: this.text("requestFailed") });
             } finally {
                 view.setBusy(false);
             }
+        },
+
+        /**
+         * A document that was never submitted has no workflow, and the API says so
+         * with 404. That is the normal case for a directly posted document, so it
+         * clears the panel rather than raising an error.
+         */
+        async _loadWorkflow() {
+            try {
+                const workflow = await this.api().request(
+                    this._path("/workflow"), { context: this.contextData() });
+                this.getView().getModel("workflow").setData(workflow);
+            } catch (error) {
+                if (error.status !== 404) {
+                    throw error;
+                }
+                this.getView().getModel("workflow").setData({});
+            }
+        },
+
+        /** Every workflow action is the same shape: POST, report, reload. */
+        async _act(suffix, body, successKey) {
+            const view = this.getView();
+            view.setBusy(true);
+            try {
+                const result = await this.api().request(this._path(suffix), {
+                    method: "POST",
+                    body: body || {},
+                    context: this.contextData()
+                });
+                MessageToast.show(this.text(successKey, [result.documentStatus]));
+                await this._load();
+            } catch (error) {
+                MessageBox.error(error.message, {
+                    title: this.text("requestFailed"),
+                    details: error.errorCode
+                });
+            } finally {
+                view.setBusy(false);
+            }
+        },
+
+        onSubmit() {
+            this._act("/submit", {}, "submittedOk");
+        },
+
+        onApprove() {
+            this._promptComment("approve", "approveComment", false, (comment) =>
+                this._act("/approve", { comment }, "approvedOk"));
+        },
+
+        onReject() {
+            // Mandatory server-side, so the dialog will not send an empty one —
+            // a round trip to be told the obvious helps nobody.
+            this._promptComment("reject", "rejectComment", true, (comment) =>
+                this._act("/reject", { comment }, "rejectedOk"));
+        },
+
+        onWithdraw() {
+            this._promptComment("withdraw", "withdrawComment", false, (comment) =>
+                this._act("/withdraw", { comment }, "withdrawnOk"));
+        },
+
+        onDiscard() {
+            MessageBox.warning(this.text("discardConfirm"), {
+                title: this.text("discard"),
+                actions: [MessageBox.Action.DELETE, MessageBox.Action.CANCEL],
+                emphasizedAction: MessageBox.Action.CANCEL,
+                onClose: (action) => {
+                    if (action === MessageBox.Action.DELETE) {
+                        this._discard();
+                    }
+                }
+            });
+        },
+
+        async _discard() {
+            const view = this.getView();
+            view.setBusy(true);
+            try {
+                const result = await this.api().request(this._path(), {
+                    method: "DELETE",
+                    context: this.contextData()
+                });
+                MessageToast.show(this.text("discardedOk", [result.documentNumberFormatted]));
+                this.getRouter().navTo("journalCreate");
+            } catch (error) {
+                MessageBox.error(error.message, {
+                    title: this.text("requestFailed"),
+                    details: error.errorCode
+                });
+            } finally {
+                view.setBusy(false);
+            }
+        },
+
+        /**
+         * Asks for the comment that goes on the approval step. Built as a dialog
+         * rather than a MessageBox because MessageBox cannot take free text, and a
+         * rejection reason typed by the approver is the whole value of the record.
+         */
+        _promptComment(titleKey, labelKey, required, onConfirm) {
+            const input = new TextArea({
+                width: "100%",
+                rows: 3,
+                placeholder: this.text(labelKey),
+                valueLiveUpdate: true
+            });
+
+            const confirm = new Button({
+                text: this.text("confirm"),
+                type: "Emphasized",
+                // Required means required here too. The server refuses an empty
+                // rejection reason, and finding that out after a round trip helps
+                // nobody.
+                enabled: !required,
+                press: () => {
+                    dialog.close();
+                    onConfirm(input.getValue());
+                }
+            });
+
+            if (required) {
+                input.attachLiveChange(() =>
+                    confirm.setEnabled(input.getValue().trim().length > 0));
+            }
+
+            const dialog = new Dialog({
+                id: this.createId("commentDialog"),
+                title: this.text(titleKey),
+                contentWidth: "24rem",
+                content: [input],
+                beginButton: confirm,
+                endButton: new Button({
+                    text: this.text("cancel"),
+                    press: () => dialog.close()
+                }),
+                afterClose: () => dialog.destroy()
+            });
+
+            this.getView().addDependent(dialog);
+            dialog.open();
         },
 
         onReverse() {
@@ -57,10 +209,7 @@ sap.ui.define([
             view.setBusy(true);
             try {
                 const result = await this.api().request(
-                    "/api/v1/finance/journal-entries/"
-                    + encodeURIComponent(this._key.companyCode) + "/"
-                    + encodeURIComponent(this._key.fiscalYear) + "/"
-                    + encodeURIComponent(this._key.documentNumber) + "/reverse",
+                    this._path("/reverse"),
                     {
                         method: "POST",
                         body: { reversalReasonCode: "01" },

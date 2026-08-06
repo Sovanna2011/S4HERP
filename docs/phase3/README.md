@@ -14,6 +14,7 @@ record of what increment 1 delivered rather than edited to match today:
 | --- | --- |
 | 2 — tax calculation and reversal (FB08) | commit `6ec8b4e` |
 | 3 — park, submit, approve, maker-checker | [increment-3-workflow.md](increment-3-workflow.md) |
+| 4 — withdraw, discard, approval screens | [increment-4-lifecycle.md](increment-4-lifecycle.md) |
 
 ## What was built
 

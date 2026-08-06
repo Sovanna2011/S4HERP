@@ -140,4 +140,5 @@ internal static class PostingErrors
     public const string NoExchangeRate = "NO_EXCHANGE_RATE";
     public const string NotParked = "DOCUMENT_NOT_PARKED";
     public const string NotPendingApproval = "DOCUMENT_NOT_PENDING_APPROVAL";
+    public const string NotDiscardable = "DOCUMENT_NOT_DISCARDABLE";
 }

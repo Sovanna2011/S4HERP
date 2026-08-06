@@ -1,7 +1,8 @@
 # Phase 4 — SAPUI5 Front End
 
-Status: **delivered and verified in a real browser.** 16/16 browser acceptance
-checks passing against the running API — no mocks.
+Status: **delivered and verified in a real browser.** 16/27 browser acceptance
+checks passing against the running API — no mocks. The park/submit/approve
+journey was added by [increment 4](../phase3/increment-4-lifecycle.md).
 
 ## What was built
 
@@ -118,7 +119,7 @@ mangled the posting date under a non-ISO locale.
 
 1. **No QUnit or OPA5 tests.** The browser acceptance suite covers the same
    journeys end-to-end, but unit-level control tests are still owed.
-2. **The launchpad tile list is hard-coded** in the controller. `cfg.TransactionCode`
+2. **The launchpad tile list is hard-coded** in the controller (three tiles now). `cfg.TransactionCode`
    already holds the registry and `sec.RoleTransactionCode` the grants, so
    wiring the tiles to a `/api/v1/tcodes` endpoint is what makes the launchpad
    genuinely role-based. Today an unauthorised user sees the tile and is refused
@@ -131,9 +132,11 @@ mangled the posting date under a non-ISO locale.
 5. **No Flexible Column Layout or IconTabBar yet.** Both are called for by §19
    and belong with the Business Partner application, which has the tabbed
    structure that needs them.
-6. **The journal entry screen posts directly.** Park, hold and submit-for-approval
-   are in the schema and the status model but have no backend commands yet, so
-   the buttons would have nothing to call.
+6. ~~**The journal entry screen posts directly.**~~ Closed by
+   [increment 4](../phase3/increment-4-lifecycle.md): Park sits beside Simulate
+   and Post, the document screen carries Submit, Approve, Reject, Withdraw and
+   Discard by status, and an Approvals inbox has its own tile. Hold is still not
+   built — it is the one pre-posting status with no command.
 7. **Value helps are free-text inputs.** G/L account and cost centre are typed,
    not picked. The search-help metadata exists in the blueprint's dictionary
    design but is not built.

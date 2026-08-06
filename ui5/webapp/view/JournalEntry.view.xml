@@ -158,6 +158,7 @@
                         type="Negative"
                         press=".onShowMessages"/>
                 <Button id="simulateButton" text="{i18n>simulate}" press=".onSimulate"/>
+                <Button id="parkButton" text="{i18n>park}" press=".onPark"/>
                 <Button id="postButton" text="{i18n>post}" type="Emphasized" press=".onPost"/>
             </OverflowToolbar>
         </f:footer>

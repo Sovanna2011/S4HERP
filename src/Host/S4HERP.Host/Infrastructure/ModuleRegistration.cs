@@ -138,6 +138,12 @@ public static class ModuleRegistration
             ICommandHandler<RejectJournalEntryCommand, JournalWorkflowResult>,
             RejectJournalEntryHandler>();
         services.AddScoped<
+            ICommandHandler<WithdrawJournalEntryCommand, JournalWorkflowResult>,
+            WithdrawJournalEntryHandler>();
+        services.AddScoped<
+            ICommandHandler<DeleteJournalEntryCommand, DeleteJournalEntryResult>,
+            DeleteJournalEntryHandler>();
+        services.AddScoped<
             IQueryHandler<TrialBalanceQuery, TrialBalanceResult>,
             TrialBalanceQueryHandler>();
         services.AddScoped<

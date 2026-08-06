@@ -43,6 +43,49 @@ public sealed record RejectJournalEntryCommand : ICommand<JournalWorkflowResult>
     public required string Comment { get; init; }
 }
 
+/// <summary>
+/// Pulls a submitted document back out of approval, returning it to
+/// <c>Parked</c>. Only the submitter or the person who parked it may.
+/// </summary>
+[RequiresAuthorization("F_BKPF_BUK", "01")]
+public sealed record WithdrawJournalEntryCommand : ICommand<JournalWorkflowResult>
+{
+    public required string CompanyCode { get; init; }
+    public required short FiscalYear { get; init; }
+    public required long DocumentNumber { get; init; }
+    public string? Comment { get; init; }
+}
+
+/// <summary>
+/// Discards a document that never reached the ledger.
+///
+/// This exists because a parked document's lines cannot be corrected —
+/// <c>fin.TR_JournalEntryLine_NoUpdate</c> refuses every line update, on purpose
+/// — so the only way to fix a mistake before posting is to discard the document
+/// and park a fresh one. Without it a rejected document is a dead end.
+///
+/// The document number is *not* reclaimed. Gapless numbering means a number that
+/// was issued is spent, and inventing a hole to fill later would defeat the
+/// thing the number range exists for.
+/// </summary>
+[RequiresAuthorization("F_BKPF_BUK", "06")]
+public sealed record DeleteJournalEntryCommand : ICommand<DeleteJournalEntryResult>
+{
+    public required string CompanyCode { get; init; }
+    public required short FiscalYear { get; init; }
+    public required long DocumentNumber { get; init; }
+}
+
+public sealed record DeleteJournalEntryResult
+{
+    public required string CompanyCode { get; init; }
+    public required short FiscalYear { get; init; }
+    public required long DocumentNumber { get; init; }
+    public required string DocumentNumberFormatted { get; init; }
+    public required string PreviousStatus { get; init; }
+    public required int LinesDeleted { get; init; }
+}
+
 public sealed record JournalWorkflowResult
 {
     public required string CompanyCode { get; init; }
@@ -446,6 +489,153 @@ public sealed class RejectJournalEntryHandler(
         RejectJournalEntryCommand command, CancellationToken cancellationToken) =>
         DecideAsync(command.CompanyCode, command.FiscalYear, command.DocumentNumber,
             ApprovalDecision.Rejected, command.Comment, cancellationToken);
+}
+
+public sealed class WithdrawJournalEntryHandler(
+    S4herpDbContext db,
+    IApprovalService approvals,
+    IAuthorizationEnforcer authorization,
+    IUserContext user,
+    ITenantContext tenant,
+    IClock clock,
+    ICorrelationContext correlation)
+    : ICommandHandler<WithdrawJournalEntryCommand, JournalWorkflowResult>
+{
+    public async Task<JournalWorkflowResult> HandleAsync(
+        WithdrawJournalEntryCommand command, CancellationToken cancellationToken)
+    {
+        await authorization.RequireAsync(
+            "F_BKPF_BUK", [("BUKRS", command.CompanyCode), ("ACTVT", "01")], cancellationToken);
+
+        var (company, header) = await JournalWorkflowLookup.LoadAsync(
+            db, command.CompanyCode, command.FiscalYear, command.DocumentNumber, cancellationToken);
+
+        if (header.Status != JournalStatus.PendingApproval)
+        {
+            throw new BusinessRuleException(
+                PostingErrors.NotPendingApproval,
+                $"Document {header.DocumentNumberFormatted} is {header.Status} and is not " +
+                "awaiting approval.");
+        }
+
+        var result = await approvals.WithdrawAsync(
+            JournalWorkflowLookup.ObjectType, header.DocumentNumberFormatted,
+            command.Comment, cancellationToken);
+
+        // Back to Parked, not to Draft: the document is complete and still holds
+        // its number. It can be submitted again, or discarded.
+        header.Status = JournalStatus.Parked;
+
+        db.Add(new Audit.Domain.AuditLog
+        {
+            TenantId = tenant.TenantId,
+            OccurredAtUtc = clock.UtcNow,
+            UserName = user.UserName,
+            CompanyCodeId = company.Id,
+            Action = Audit.Domain.AuditAction.Change,
+            ObjectType = JournalWorkflowLookup.ObjectType,
+            ObjectId = header.DocumentNumberFormatted,
+            SourceApi = "POST /api/v1/finance/journal-entries/{...}/withdraw",
+            TransactionCode = "FV50",
+            CorrelationId = correlation.CorrelationId,
+            Summary = "Withdrawn from approval; back to Parked."
+                      + (command.Comment is { Length: > 0 } ? $" Comment: {command.Comment}" : ""),
+        });
+
+        return new JournalWorkflowResult
+        {
+            CompanyCode = company.Code,
+            FiscalYear = header.FiscalYear,
+            DocumentNumber = header.DocumentNumber,
+            DocumentNumberFormatted = header.DocumentNumberFormatted,
+            DocumentStatus = header.Status.ToString(),
+            ApprovalOutcome = result.Outcome.ToString(),
+            Posted = false,
+            Steps = result.Steps,
+        };
+    }
+}
+
+public sealed class DeleteJournalEntryHandler(
+    S4herpDbContext db,
+    IAuthorizationEnforcer authorization,
+    IUserContext user,
+    ITenantContext tenant,
+    IClock clock,
+    ICorrelationContext correlation)
+    : ICommandHandler<DeleteJournalEntryCommand, DeleteJournalEntryResult>
+{
+    /// <summary>
+    /// The only statuses a document may be discarded from. Everything else either
+    /// reached the ledger — where reversal is the only correction — or is waiting
+    /// on somebody, and deleting a document out from under an approver would
+    /// leave their inbox pointing at nothing.
+    /// </summary>
+    private static readonly JournalStatus[] Discardable =
+        [JournalStatus.Draft, JournalStatus.Held, JournalStatus.Parked, JournalStatus.Rejected];
+
+    public async Task<DeleteJournalEntryResult> HandleAsync(
+        DeleteJournalEntryCommand command, CancellationToken cancellationToken)
+    {
+        await authorization.RequireAsync(
+            "F_BKPF_BUK", [("BUKRS", command.CompanyCode), ("ACTVT", "06")], cancellationToken);
+
+        var (company, header) = await JournalWorkflowLookup.LoadAsync(
+            db, command.CompanyCode, command.FiscalYear, command.DocumentNumber, cancellationToken);
+
+        if (!Discardable.Contains(header.Status))
+        {
+            throw new BusinessRuleException(
+                PostingErrors.NotDiscardable,
+                $"Document {header.DocumentNumberFormatted} is {header.Status}. Only a document " +
+                "that never reached the ledger can be discarded; post a reversal instead.");
+        }
+
+        // AsNoTracking is load-bearing, not a micro-optimisation. Tracked lines
+        // become Deleted entities that EF removes with their own DELETE statements
+        // *before* the header's — and at that moment the header still exists, so
+        // fin.TR_JournalEntryLine_NoDelete throws 50005. Untracked, EF deletes only
+        // the header and SQL Server's cascade takes the lines with it, which is the
+        // case the trigger deliberately exempts. Verified: it fails without this.
+        var lineCount = await db.Set<JournalEntryLine>()
+            .AsNoTracking()
+            .CountAsync(l => l.CompanyCodeId == company.Id
+                             && l.FiscalYear == header.FiscalYear
+                             && l.DocumentNumber == header.DocumentNumber, cancellationToken);
+
+        var previousStatus = header.Status.ToString();
+
+        db.Remove(header);
+
+        // Written before the delete so the audit entry outlives the document. The
+        // number stays consumed, and this record is the only thing that explains
+        // the gap in the sequence.
+        db.Add(new Audit.Domain.AuditLog
+        {
+            TenantId = tenant.TenantId,
+            OccurredAtUtc = clock.UtcNow,
+            UserName = user.UserName,
+            CompanyCodeId = company.Id,
+            Action = Audit.Domain.AuditAction.Delete,
+            ObjectType = JournalWorkflowLookup.ObjectType,
+            ObjectId = header.DocumentNumberFormatted,
+            SourceApi = "DELETE /api/v1/finance/journal-entries/{...}",
+            TransactionCode = "FV50",
+            CorrelationId = correlation.CorrelationId,
+            Summary = $"Discarded from {previousStatus} with {lineCount} line(s). " +
+                      "The document number is not reused.",
+        });
+
+        return new DeleteJournalEntryResult
+        {
+            CompanyCode = company.Code,
+            FiscalYear = header.FiscalYear,
+            DocumentNumber = header.DocumentNumber,
+            DocumentNumberFormatted = header.DocumentNumberFormatted,
+            PreviousStatus = previousStatus,
+            LinesDeleted = lineCount,
+        };
+    }
 }
 
 public sealed class GetJournalWorkflowQueryHandler(
