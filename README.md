@@ -1,5 +1,20 @@
 # S4HERP
 
+An S/4HANA-inspired, web-based ERP system.
+
+> **Design status.** The [Phase 1 Solution Blueprint](docs/blueprint/README.md)
+> is written and **awaiting review and approval**. No production code is to be
+> written against it until it is signed off, and it carries six open questions
+> that need business answers first.
+>
+> What is in this repository today is the containerised technical foundation
+> below, including a throwaway `Products` CRUD sample that exists only to prove
+> the stack end to end. The blueprint
+> ([13 — Project Structure](docs/blueprint/13-project-structure.md#136-migrating-the-current-scaffold))
+> records what carries forward and what gets deleted at the start of Phase 2.
+
+## Technical foundation
+
 ASP.NET Core 10 Web API backed by SQL Server 2025, fully containerised with Docker Compose.
 
 | Component | Version | Image |
