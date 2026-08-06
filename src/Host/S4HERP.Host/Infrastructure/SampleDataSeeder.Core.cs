@@ -36,7 +36,7 @@ public partial class SampleDataSeeder
         var calendars = await SeedCalendarAsync(ct);
         var coa = await SeedChartOfAccountsAsync(ct);
         var orgs = await SeedOrganizationAsync(calendars, coa, ct);
-        await SeedDocumentConfigurationAsync(orgs, ct);
+        await SeedDocumentConfigurationAsync(orgs, coa, ct);
         var co = await SeedControllingAsync(orgs, calendars, coa, ct);
         var partners = await SeedBusinessPartnersAsync(orgs, coa, ct);
         await SeedJournalAsync(orgs, coa, co, partners, ct);

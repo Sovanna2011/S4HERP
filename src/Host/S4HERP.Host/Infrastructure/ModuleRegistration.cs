@@ -103,6 +103,9 @@ public static class ModuleRegistration
             ICommandHandler<PostJournalEntryCommand, PostJournalEntryResult>,
             PostJournalEntryHandler>();
         services.AddScoped<
+            ICommandHandler<ReverseJournalEntryCommand, ReverseJournalEntryResult>,
+            ReverseJournalEntryHandler>();
+        services.AddScoped<
             IQueryHandler<TrialBalanceQuery, TrialBalanceResult>,
             TrialBalanceQueryHandler>();
         services.AddScoped<

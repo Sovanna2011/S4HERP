@@ -60,6 +60,11 @@ public sealed class PostJournalEntryHandler(
 
         var lines = await DeriveLinesAsync(command, context, cancellationToken);
 
+        // Tax before balancing: the caller enters the base lines, the engine
+        // completes the document. Balancing a document that is still missing its
+        // tax lines would reject every correct invoice.
+        await GenerateTaxLinesAsync(lines, context, command.PostingDate, cancellationToken);
+
         await periods.RequireOpenAsync(
             context.CompanyCode.Id, period,
             lines.Select(l => l.AccountType).Distinct().ToList(),
@@ -274,6 +279,10 @@ public sealed class PostJournalEntryHandler(
         public decimal DocumentAmount { get; init; }
         public decimal LocalAmount { get; init; }
         public string? TaxCode { get; init; }
+        public decimal? TaxBaseAmount { get; init; }
+        public decimal? TaxAmount { get; init; }
+        public bool IsTaxLine { get; init; }
+        public bool IsGenerated { get; init; }
         public string? Assignment { get; init; }
         public string? LineText { get; init; }
         public DateOnly? DueDate { get; init; }
@@ -305,6 +314,7 @@ public sealed class PostJournalEntryHandler(
             LocalAmount = LocalAmount,
             LocalCurrency = context.LocalCurrency.Code,
             TaxCode = TaxCode,
+            IsGenerated = IsGenerated,
             LineText = LineText,
         };
     }
@@ -583,6 +593,98 @@ public sealed class PostJournalEntryHandler(
         }
     }
 
+    // ------------------------------------------------------------------ tax
+
+    /// <summary>
+    /// Generates one tax line per (tax code, direction) from the base lines that
+    /// carry that code. Grouped rather than per line, because a tax authority
+    /// wants one posting per rate, not one per expense line.
+    /// </summary>
+    private async Task GenerateTaxLinesAsync(
+        List<WorkingLine> lines, PostingContext context, DateOnly postingDate, CancellationToken ct)
+    {
+        var taxed = lines
+            .Where(l => l.TaxCode is not null && !l.IsTaxLine)
+            .GroupBy(l => l.TaxCode!)
+            .ToList();
+
+        if (taxed.Count == 0)
+        {
+            return;
+        }
+
+        var codes = taxed.Select(g => g.Key).ToList();
+        var taxCodes = await db.Set<TaxCode>()
+            .Where(t => codes.Contains(t.Code)
+                        && t.CountryCode == context.CompanyCode.CountryCode
+                        && t.ValidFrom <= postingDate && t.ValidTo > postingDate
+                        && t.IsActive)
+            .ToListAsync(ct);
+
+        var violations = new List<RuleViolation>();
+        var nextLine = (short)(lines.Max(l => l.LineNumber) + 1);
+
+        foreach (var group in taxed)
+        {
+            var taxCode = taxCodes.SingleOrDefault(t => t.Code == group.Key);
+            if (taxCode is null)
+            {
+                violations.Add(new RuleViolation("lines", PostingErrors.UnknownObject,
+                    $"Tax code {group.Key} is not valid for country " +
+                    $"{context.CompanyCode.CountryCode} on {postingDate:yyyy-MM-dd}."));
+                continue;
+            }
+
+            if (taxCode.Rate == 0)
+            {
+                continue;
+            }
+
+            if (taxCode.TaxAccountId is not { } taxAccountId)
+            {
+                violations.Add(new RuleViolation("lines", PostingErrors.UnknownObject,
+                    $"Tax code {taxCode.Code} has no tax account configured."));
+                continue;
+            }
+
+            // Debits and credits within one tax code are netted before the rate is
+            // applied, so a credit memo line reduces the tax rather than adding to it.
+            var baseAmount = group.Sum(l => l.DocumentAmount);
+            var taxAmount = decimal.Round(baseAmount * taxCode.Rate / 100m, 4, MidpointRounding.AwayFromZero);
+            if (taxAmount == 0)
+            {
+                continue;
+            }
+
+            var accountNumber = context.Accounts.Values
+                .FirstOrDefault(a => a.Id == taxAccountId)?.AccountNumber;
+
+            lines.Add(new WorkingLine
+            {
+                LineNumber = nextLine++,
+                PostingKey = taxAmount > 0 ? "40" : "50",
+                DebitCredit = taxAmount > 0 ? DebitCredit.Debit : DebitCredit.Credit,
+                AccountType = AccountType.GeneralLedger,
+                GLAccountId = taxAccountId,
+                GLAccountNumber = accountNumber,
+                DocumentAmount = taxAmount,
+                LocalAmount = currencies.Translate(taxAmount, context.RateToLocal),
+                TaxCode = taxCode.Code,
+                TaxBaseAmount = baseAmount,
+                TaxAmount = taxAmount,
+                IsTaxLine = true,
+                IsGenerated = true,
+                LineText = $"{taxCode.Name} on {Math.Abs(baseAmount):N2}",
+            });
+        }
+
+        if (violations.Count > 0)
+        {
+            throw new BusinessRuleException(
+                PostingErrors.UnknownObject, "Tax could not be determined.", violations);
+        }
+    }
+
     // ------------------------------------------------------------- balancing
 
     private static List<CurrencyTotal> CheckBalanced(
@@ -684,6 +786,9 @@ public sealed class PostJournalEntryHandler(
                 LocalAmount = line.LocalAmount,
                 LocalCurrencyId = context.LocalCurrency.Id,
                 TaxCode = line.TaxCode,
+                TaxBaseAmount = line.TaxBaseAmount,
+                TaxAmount = line.TaxAmount,
+                IsTaxLine = line.IsTaxLine,
                 Assignment = line.Assignment,
                 LineText = line.LineText,
                 DueDate = line.DueDate,

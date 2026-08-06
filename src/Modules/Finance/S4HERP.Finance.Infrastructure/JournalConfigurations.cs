@@ -38,6 +38,12 @@ public class JournalEntryHeaderConfiguration : IEntityTypeConfiguration<JournalE
 
         b.ToTable(t =>
         {
+            // db/scripts/050 puts triggers on this table. SQL Server rejects an
+            // OUTPUT clause without INTO on a table with triggers, and EF emits
+            // one by default, so the model has to declare them.
+            t.HasTrigger("TR_JournalEntryHeader_PostedImmutable");
+            t.HasTrigger("TR_JournalEntryHeader_NoDeletePosted");
+
             t.HasCheckConstraint("CK_JournalHeader_Period", "[FiscalPeriod] BETWEEN 1 AND 16");
             t.HasCheckConstraint("CK_JournalHeader_Rates",
                 "[ExchangeRateToLocal] > 0 AND [ExchangeRateToGroup] > 0");
@@ -90,6 +96,9 @@ public class JournalEntryLineConfiguration : IEntityTypeConfiguration<JournalEnt
 
         b.ToTable(t =>
         {
+            t.HasTrigger("TR_JournalEntryLine_NoUpdate");
+            t.HasTrigger("TR_JournalEntryLine_NoDelete");
+
             // Signed amounts: debit positive, credit negative, so a balanced
             // document sums to zero in every currency.
             t.HasCheckConstraint("CK_JournalEntryLine_Sign",

@@ -137,7 +137,8 @@ public partial class SampleDataSeeder
 
     // ----------------------------------------------- document configuration
 
-    private async Task SeedDocumentConfigurationAsync(OrgIds orgs, CancellationToken ct)
+    private async Task SeedDocumentConfigurationAsync(
+        OrgIds orgs, ChartOfAccountsIds coa, CancellationToken ct)
     {
         var documentTypes = new (string Code, string Name, string Range, string Types, bool Ic)[]
         {
@@ -236,7 +237,11 @@ public partial class SampleDataSeeder
             db.Add(new TaxCode
             {
                 TenantId = _tenantId, Code = tc.Code, CountryCode = tc.Country, Name = tc.Name,
-                Direction = tc.Dir, Rate = tc.Rate, ValidFrom = validFrom, CreatedBy = "SEED",
+                Direction = tc.Dir, Rate = tc.Rate, ValidFrom = validFrom,
+                TaxAccountId = tc.Dir == TaxDirection.Input
+                    ? coa.Accounts["1300000000"]
+                    : coa.Accounts["2200000000"],
+                CreatedBy = "SEED",
             });
         }
 

@@ -60,6 +60,26 @@ public static class FinanceEndpoints
             .WithName("GetJournalEntry")
             .WithSummary("Display an accounting document (FB03).");
 
+        journal.MapPost("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/reverse", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                ReverseJournalEntryRequest request, IDispatcher dispatcher,
+                HttpContext http, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new ReverseJournalEntryCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                    ReversalReasonCode = request.ReversalReasonCode,
+                    PostingDate = request.PostingDate,
+                    IdempotencyKey = http.Request.Headers["Idempotency-Key"].FirstOrDefault(),
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("ReverseJournalEntry")
+            .WithSummary("Reverse an accounting document (FB08).");
+
         var reports = routes.MapGroup("/api/v1/finance/reports").WithTags("Reports");
 
         reports.MapGet("/trial-balance", async (
@@ -82,3 +102,5 @@ public static class FinanceEndpoints
         return routes;
     }
 }
+
+public sealed record ReverseJournalEntryRequest(string ReversalReasonCode, DateOnly? PostingDate);

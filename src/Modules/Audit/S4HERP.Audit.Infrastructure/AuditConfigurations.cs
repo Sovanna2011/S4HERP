@@ -17,6 +17,10 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         b.HasIndex(x => new { x.TenantId, x.ObjectType, x.ObjectId });
         b.HasIndex(x => new { x.TenantId, x.UserName, x.OccurredAtUtc });
         b.HasIndex(x => x.CorrelationId).HasFilter("[CorrelationId] IS NOT NULL");
+
+        // Append-only trigger from db/scripts/050; see the note in
+        // JournalEntryHeaderConfiguration for why EF must know.
+        b.ToTable(t => t.HasTrigger("TR_AuditLog_AppendOnly"));
     }
 }
 
