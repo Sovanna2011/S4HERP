@@ -91,6 +91,24 @@ public sealed class AuthorizationEnforcer(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<string>> RoleCodesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentUser.IsAuthenticated)
+        {
+            return [];
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        return await (
+            from ur in db.Set<UserRole>()
+            join role in db.Set<Role>() on ur.RoleId equals role.Id
+            where ur.UserId == currentUser.UserId
+                  && ur.ValidFrom <= today && ur.ValidTo > today
+            select role.Code).ToListAsync(cancellationToken);
+    }
+
     /// <summary>
     /// Grants held by the caller for one authorisation object, as a list of
     /// field → permitted-value-range maps. Cached briefly: authorisation is read

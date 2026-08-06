@@ -4,6 +4,8 @@ using S4HERP.Controlling.Domain;
 using S4HERP.Finance.Domain;
 using S4HERP.Organization.Domain;
 using S4HERP.Security.Domain;
+using S4HERP.Workflow.Contracts;
+using S4HERP.Workflow.Domain;
 
 namespace S4HERP.Host.Infrastructure;
 
@@ -438,6 +440,8 @@ public partial class SampleDataSeeder
             ("FI_ACCOUNTANT", "Financial accountant"),
             ("FI_CLERK_1000", "Financial clerk, company code 1000"),
             ("FI_APPROVER", "Financial approver"),
+            ("FI_SENIOR_APPROVER", "Financial approver, second level"),
+            ("FI_SUPERVISOR", "Financial supervisor (posts and approves — violates SOD003)"),
             ("BP_MAINTAINER", "Business partner maintainer"),
             ("AUDITOR", "Auditor (display only)"),
             ("ADMIN", "System administrator"),
@@ -478,6 +482,44 @@ public partial class SampleDataSeeder
         await GrantAsync(roleMap["AUDITOR"], "F_BKPF_BUK",
             [("BUKRS", "*", null), ("ACTVT", "03", null)], objectMap, fieldMap, ct);
 
+        // Approvers get display, never create. SOD003 names exactly this pair —
+        // holding both F_BKPF_BUK/01 and W_APPROVE defeats maker-checker — so the
+        // seed must not hand out a combination its own rulebook forbids.
+        foreach (var role in new[] { "FI_APPROVER", "FI_SENIOR_APPROVER" })
+        {
+            await GrantAsync(roleMap[role], "F_BKPF_BUK",
+                [("BUKRS", "*", null), ("ACTVT", "03", null)], objectMap, fieldMap, ct);
+        }
+
+        // Approval limits. Zero-padded fixed width because the enforcer compares
+        // interval bounds as text — see Workflow.Contracts.AmountLimit.
+        await GrantAsync(roleMap["FI_APPROVER"], "W_APPROVE",
+            [("WFTYPE", "JournalEntry", null),
+             ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(50_000m))],
+            objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["FI_SENIOR_APPROVER"], "W_APPROVE",
+            [("WFTYPE", "JournalEntry", null),
+             ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(10_000_000m))],
+            objectMap, fieldMap, ct);
+
+        // Deliberately in violation of SOD003: this role both creates and approves
+        // accounting documents. It exists so that maker-checker has something to
+        // catch. Segregation of duties is a *design* control — SegregationOfDutiesRule
+        // is a rulebook a reviewer reads, not something the enforcer applies — so a
+        // real installation can and eventually will grant a combination like this.
+        // Maker-checker is the runtime control that stops it becoming a self-approval,
+        // and a control nobody in the seed can trigger is a control nobody has tested.
+        await GrantAsync(roleMap["FI_SUPERVISOR"], "F_BKPF_BUK",
+            [("BUKRS", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
+            objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["FI_SUPERVISOR"], "F_BKPF_BLA",
+            [("BLART", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
+            objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["FI_SUPERVISOR"], "W_APPROVE",
+            [("WFTYPE", "JournalEntry", null),
+             ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(50_000m))],
+            objectMap, fieldMap, ct);
+
         // Passwords are absent by design: Phase 3 identifies callers by header in
         // Development only, and a seeded credential would outlive the seed.
         await CreateUserAsync("seed.accountant", "Seed Accountant", roleMap["FI_ACCOUNTANT"],
@@ -488,6 +530,71 @@ public partial class SampleDataSeeder
         await CreateUserAsync("seed.auditor", "Seed Auditor", roleMap["AUDITOR"],
             orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"], validFrom, ct,
             UserType.Auditor);
+        await CreateUserAsync("seed.approver", "Seed Approver (up to 50,000)",
+            roleMap["FI_APPROVER"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct);
+        await CreateUserAsync("seed.cfo", "Seed CFO (second-level approver)",
+            roleMap["FI_SENIOR_APPROVER"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct);
+        await CreateUserAsync("seed.supervisor", "Seed Supervisor (posts and approves)",
+            roleMap["FI_SUPERVISOR"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct);
+
+        await SeedApprovalRulesAsync(validFrom, ct);
+    }
+
+    /// <summary>
+    /// Two levels of approval on accounting documents. Thresholds are per currency
+    /// because a threshold without one is meaningless: company code 2000 keeps its
+    /// books in THB, so a USD rule would silently never match there and every
+    /// document would post unapproved.
+    /// </summary>
+    private async Task SeedApprovalRulesAsync(DateOnly validFrom, CancellationToken ct)
+    {
+        var thresholds = new (string Currency, decimal Level1, decimal Level2)[]
+        {
+            ("USD", 0m, 5_000m),
+            // Roughly the USD figures at 36 THB, rounded to something a human would
+            // actually configure.
+            ("THB", 0m, 180_000m),
+        };
+
+        foreach (var (currencyCode, level1, level2) in thresholds)
+        {
+            var currencyId = await CurrencyId(currencyCode, ct);
+
+            db.Add(new ApprovalRule
+            {
+                TenantId = _tenantId,
+                Code = $"JE_{currencyCode}_L1",
+                Name = $"Journal entry, first approval ({currencyCode})",
+                DocumentTypeCode = null,
+                FromAmount = level1,
+                CurrencyId = currencyId,
+                ApproverRoleCode = "FI_APPROVER",
+                StepSequence = 10,
+                MakerCheckerEnforced = true,
+                ValidFrom = validFrom,
+                CreatedBy = "SEED",
+            });
+
+            db.Add(new ApprovalRule
+            {
+                TenantId = _tenantId,
+                Code = $"JE_{currencyCode}_L2",
+                Name = $"Journal entry, second approval above {level2:N0} {currencyCode}",
+                DocumentTypeCode = null,
+                FromAmount = level2,
+                CurrencyId = currencyId,
+                ApproverRoleCode = "FI_SENIOR_APPROVER",
+                StepSequence = 20,
+                MakerCheckerEnforced = true,
+                ValidFrom = validFrom,
+                CreatedBy = "SEED",
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task CreateUserAsync(

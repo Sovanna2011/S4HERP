@@ -24,6 +24,8 @@
     <ProjectReference Include="../../Modules/Security/S4HERP.Security.Application/S4HERP.Security.Application.csproj" />
     <ProjectReference Include="../../Modules/Controlling/S4HERP.Controlling.Infrastructure/S4HERP.Controlling.Infrastructure.csproj" />
     <ProjectReference Include="../../Modules/Audit/S4HERP.Audit.Infrastructure/S4HERP.Audit.Infrastructure.csproj" />
+    <ProjectReference Include="../../Modules/Workflow/S4HERP.Workflow.Infrastructure/S4HERP.Workflow.Infrastructure.csproj" />
+    <ProjectReference Include="../../Modules/Workflow/S4HERP.Workflow.Application/S4HERP.Workflow.Application.csproj" />
   </ItemGroup>
 
 </Project>

@@ -44,6 +44,94 @@ public static class FinanceEndpoints
             .WithName("SimulateJournalEntry")
             .WithSummary("Show the full accounting impact without posting.");
 
+        journal.MapPost("/park", async (
+                PostJournalEntryCommand command,
+                IDispatcher dispatcher,
+                HttpContext http,
+                CancellationToken ct) =>
+            {
+                var key = http.Request.Headers["Idempotency-Key"].FirstOrDefault()
+                          ?? command.IdempotencyKey;
+
+                var result = await dispatcher.SendAsync(
+                    command with { IdempotencyKey = key, Simulate = false, Park = true }, ct);
+
+                return Results.Created(
+                    $"/api/v1/finance/journal-entries/{result.CompanyCode}/{result.FiscalYear}/{result.DocumentNumber}",
+                    result);
+            })
+            .WithName("ParkJournalEntry")
+            .WithSummary("Park a document without posting it (FV50).");
+
+        journal.MapPost("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/submit", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new SubmitJournalEntryCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("SubmitJournalEntry")
+            .WithSummary("Submit a parked document for approval.");
+
+        journal.MapPost("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/approve", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                ApprovalDecisionBody? body, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new ApproveJournalEntryCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                    Comment = body?.Comment,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("ApproveJournalEntry")
+            .WithSummary("Approve the caller's step; posts the document on the last one.");
+
+        journal.MapPost("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/reject", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                ApprovalDecisionBody body, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new RejectJournalEntryCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                    // Passed through empty rather than rejected here, so the reason
+                    // the caller sees is the workflow's own REJECTION_COMMENT_REQUIRED
+                    // wherever the request came from.
+                    Comment = body?.Comment ?? string.Empty,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("RejectJournalEntry")
+            .WithSummary("Reject the document, with a mandatory reason.");
+
+        journal.MapGet("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/workflow", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.QueryAsync(new GetJournalWorkflowQuery
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    DocumentNumber = documentNumber,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("GetJournalWorkflow")
+            .WithSummary("Approval state and step history for a document.");
+
         journal.MapGet("/{companyCode}/{fiscalYear:int}/{documentNumber:long}", async (
                 string companyCode, int fiscalYear, long documentNumber,
                 IDispatcher dispatcher, CancellationToken ct) =>
@@ -80,6 +168,13 @@ public static class FinanceEndpoints
             .WithName("ReverseJournalEntry")
             .WithSummary("Reverse an accounting document (FB08).");
 
+        routes.MapGet("/api/v1/finance/approvals", async (
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(new MyJournalApprovalsQuery(), ct)))
+            .WithTags("Journal")
+            .WithName("GetMyJournalApprovals")
+            .WithSummary("Documents waiting on the calling user.");
+
         var reports = routes.MapGroup("/api/v1/finance/reports").WithTags("Reports");
 
         reports.MapGet("/trial-balance", async (
@@ -104,3 +199,5 @@ public static class FinanceEndpoints
 }
 
 public sealed record ReverseJournalEntryRequest(string ReversalReasonCode, DateOnly? PostingDate);
+
+public sealed record ApprovalDecisionBody(string? Comment);

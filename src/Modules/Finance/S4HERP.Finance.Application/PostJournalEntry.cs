@@ -35,6 +35,19 @@ public sealed record PostJournalEntryCommand : ICommand<PostJournalEntryResult>
     /// the derived result without allocating a number or writing anything.
     /// </summary>
     public bool Simulate { get; init; }
+
+    /// <summary>
+    /// FV50. Writes the document with status <c>Parked</c>: it takes a document
+    /// number and its lines are final, but it does not hit the ledger — no open
+    /// items, and the trial balance ignores it. Submitting it for approval and
+    /// having that approval completed is what posts it.
+    ///
+    /// A flag rather than a separate command, for the same reason
+    /// <see cref="Simulate"/> is: park, simulate and post must derive the document
+    /// through identical code, or parking would approve one document and post
+    /// another.
+    /// </summary>
+    public bool Park { get; init; }
 }
 
 public sealed record JournalLineInput
@@ -64,6 +77,14 @@ public sealed record JournalLineInput
 public sealed record PostJournalEntryResult
 {
     public required bool Posted { get; init; }
+
+    /// <summary>
+    /// The document's status — <c>Simulated</c>, <c>Parked</c> or <c>Posted</c>.
+    /// <see cref="Posted"/> alone cannot distinguish "not written" from "written
+    /// but not in the ledger".
+    /// </summary>
+    public string Status { get; init; } = "Simulated";
+
     public required string CompanyCode { get; init; }
     public required short FiscalYear { get; init; }
     public required byte FiscalPeriod { get; init; }
@@ -117,4 +138,6 @@ internal static class PostingErrors
     public const string CostObjectRequired = "COST_OBJECT_REQUIRED";
     public const string NumberRangeExhausted = "NUMBER_RANGE_EXHAUSTED";
     public const string NoExchangeRate = "NO_EXCHANGE_RATE";
+    public const string NotParked = "DOCUMENT_NOT_PARKED";
+    public const string NotPendingApproval = "DOCUMENT_NOT_PENDING_APPROVAL";
 }

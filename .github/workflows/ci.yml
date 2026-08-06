@@ -53,12 +53,19 @@ jobs:
       - name: Migrations reverse cleanly
         # A migration without a working Down is not a migration, it is a one-way
         # door. Proven here rather than discovered during a rollback.
+        #
+        # --migrate rather than a bare `ef database update` on the way up, so the
+        # post-migration scripts run and the unwind faces the real schema. Without
+        # them there is no sec.TenantIsolationPolicy, and the policy is created
+        # WITH SCHEMABINDING — it blocks dropping every table it covers. This step
+        # was green for two phases only because the scratch database was missing
+        # the half of the schema that makes rollback hard.
         env:
           ConnectionStrings__Default: "Server=localhost,1433;Database=S4HERP_Down;User Id=sa;Password=${{ env.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
         run: |
           dotnet tool install --global dotnet-ef --version 10.0.10
           export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet ef database update --project src/Host/S4HERP.Host
+          dotnet run --project src/Host/S4HERP.Host -c Release --no-build -- --migrate
           dotnet ef database update 0 --project src/Host/S4HERP.Host
 
       - name: Start the host

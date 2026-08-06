@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>S4HERP.Workflow.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Deliberately references nothing. Blueprint 02 §2.2: a module references
+    another module's Contracts assembly and nothing else, so Contracts must be
+    referenceable without dragging in the module it belongs to.
+  -->
+
+</Project>

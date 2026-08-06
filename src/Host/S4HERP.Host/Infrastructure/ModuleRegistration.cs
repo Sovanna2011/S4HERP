@@ -1,13 +1,43 @@
+using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using S4HERP.BuildingBlocks.Application;
 using S4HERP.BuildingBlocks.Infrastructure;
 using S4HERP.Finance.Application;
 using S4HERP.Security.Application;
+using S4HERP.Workflow.Application;
+using S4HERP.Workflow.Contracts;
 
 namespace S4HERP.Host.Infrastructure;
 
 public static class ModuleRegistration
 {
+    /// <summary>
+    /// Every assembly carrying <c>IEntityTypeConfiguration</c> types, in one place.
+    ///
+    /// It has to be one place. This list was previously copied into the design-time
+    /// factory and the architecture tests as well, and adding the Workflow module to
+    /// only the runtime copy scaffolded a migration that was silently *empty* — EF
+    /// compared a model that had the tables against a snapshot built from a model
+    /// that did not.
+    /// </summary>
+    public static readonly Assembly[] ModuleAssemblies =
+    [
+        typeof(Organization.Infrastructure.TenantConfiguration).Assembly,
+        typeof(Security.Infrastructure.UserConfiguration).Assembly,
+        typeof(BusinessPartner.Infrastructure.PartnerConfiguration).Assembly,
+        typeof(Finance.Infrastructure.LedgerConfiguration).Assembly,
+        typeof(Controlling.Infrastructure.ControllingAreaConfiguration).Assembly,
+        typeof(Audit.Infrastructure.AuditLogConfiguration).Assembly,
+        typeof(Workflow.Infrastructure.ApprovalRuleConfiguration).Assembly,
+    ];
+
+    /// <summary>Points <see cref="S4herpDbContext"/> at the module assemblies.</summary>
+    public static void UseModuleConfigurations()
+    {
+        S4herpDbContext.ConfigurationAssemblies.Clear();
+        S4herpDbContext.ConfigurationAssemblies.AddRange(ModuleAssemblies);
+    }
+
     /// <summary>
     /// The composition root. Every module contributes its entity configurations
     /// and its handlers here and nowhere else, so adding or removing one is a
@@ -20,16 +50,7 @@ public static class ModuleRegistration
             ?? throw new InvalidOperationException(
                 "Connection string 'Default' is missing. Set ConnectionStrings__Default.");
 
-        S4herpDbContext.ConfigurationAssemblies.Clear();
-        S4herpDbContext.ConfigurationAssemblies.AddRange(
-        [
-            typeof(Organization.Infrastructure.TenantConfiguration).Assembly,
-            typeof(Security.Infrastructure.UserConfiguration).Assembly,
-            typeof(BusinessPartner.Infrastructure.PartnerConfiguration).Assembly,
-            typeof(Finance.Infrastructure.LedgerConfiguration).Assembly,
-            typeof(Controlling.Infrastructure.ControllingAreaConfiguration).Assembly,
-            typeof(Audit.Infrastructure.AuditLogConfiguration).Assembly,
-        ]);
+        UseModuleConfigurations();
 
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<SystemDbContextFactory>();
@@ -98,6 +119,8 @@ public static class ModuleRegistration
         services.AddScoped<IFiscalPeriodService, FiscalPeriodService>();
         services.AddScoped<ICurrencyTranslator, CurrencyTranslator>();
         services.AddScoped<INumberRangeAllocator, NumberRangeAllocator>();
+        services.AddScoped<IApprovalService, ApprovalService>();
+        services.AddScoped<ParkedDocumentPoster>();
 
         services.AddScoped<
             ICommandHandler<PostJournalEntryCommand, PostJournalEntryResult>,
@@ -106,10 +129,25 @@ public static class ModuleRegistration
             ICommandHandler<ReverseJournalEntryCommand, ReverseJournalEntryResult>,
             ReverseJournalEntryHandler>();
         services.AddScoped<
+            ICommandHandler<SubmitJournalEntryCommand, JournalWorkflowResult>,
+            SubmitJournalEntryHandler>();
+        services.AddScoped<
+            ICommandHandler<ApproveJournalEntryCommand, JournalWorkflowResult>,
+            ApproveJournalEntryHandler>();
+        services.AddScoped<
+            ICommandHandler<RejectJournalEntryCommand, JournalWorkflowResult>,
+            RejectJournalEntryHandler>();
+        services.AddScoped<
             IQueryHandler<TrialBalanceQuery, TrialBalanceResult>,
             TrialBalanceQueryHandler>();
         services.AddScoped<
             IQueryHandler<GetJournalEntryQuery, JournalEntryDocument>,
             GetJournalEntryQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<GetJournalWorkflowQuery, WorkflowStateView>,
+            GetJournalWorkflowQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<MyJournalApprovalsQuery, IReadOnlyList<JournalApprovalInboxItem>>,
+            MyJournalApprovalsQueryHandler>();
     }
 }

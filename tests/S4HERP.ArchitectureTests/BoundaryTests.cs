@@ -27,6 +27,10 @@ public class BoundaryTests
         typeof(Controlling.Infrastructure.ControllingAreaConfiguration).Assembly,
         typeof(Audit.Domain.AuditLog).Assembly,
         typeof(Audit.Infrastructure.AuditLogConfiguration).Assembly,
+        typeof(Workflow.Domain.WorkflowInstance).Assembly,
+        typeof(Workflow.Infrastructure.ApprovalRuleConfiguration).Assembly,
+        typeof(Workflow.Application.ApprovalService).Assembly,
+        typeof(Workflow.Contracts.IApprovalService).Assembly,
     ];
 
     /// <summary>
@@ -103,6 +107,7 @@ public class BoundaryTests
             ["Finance"] = ["fin", "org", "mdm"],
             ["Controlling"] = ["co"],
             ["Audit"] = ["audit"],
+            ["Workflow"] = ["wf"],
         };
 
         var context = TestContext.Create();

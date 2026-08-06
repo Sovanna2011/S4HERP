@@ -7,6 +7,14 @@ on top of it.
 
 Per §26: completed components, files, database changes, tests, limitations, next.
 
+**Later increments** are reported separately, and this document is left as the
+record of what increment 1 delivered rather than edited to match today:
+
+| Increment | Report |
+| --- | --- |
+| 2 — tax calculation and reversal (FB08) | commit `6ec8b4e` |
+| 3 — park, submit, approve, maker-checker | [increment-3-workflow.md](increment-3-workflow.md) |
+
 ## What was built
 
 | Component | State |
@@ -220,9 +228,10 @@ db/tests/posting-engine.sh   the 25 acceptance checks
 Increment 2 of Phase 3, in dependency order:
 
 1. **Reversal (FB08)** and **document park/hold** — completes the document
-   lifecycle the schema already models.
-2. **Tax calculation** and automatic tax line generation.
+   lifecycle the schema already models. *(Done: increment 2 and 3.)*
+2. **Tax calculation** and automatic tax line generation. *(Done: increment 2.)*
 3. **Workflow and maker-checker**, which the SoD rules already describe.
-4. **AR/AP**: invoices, payments, clearing, the payment run.
+   *(Done: [increment 3](increment-3-workflow.md).)*
+4. **AR/AP**: invoices, payments, clearing, the payment run. *(Still to build.)*
 
 The [roadmap](../blueprint/14-roadmap.md) is otherwise unchanged.

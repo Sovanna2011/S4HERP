@@ -172,4 +172,14 @@ public interface IAuthorizationEnforcer
     /// <summary>Company codes the caller may act in, for query predicates.</summary>
     Task<IReadOnlyCollection<long>> AuthorizedCompanyCodeIdsAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Role codes the caller currently holds. Needed because an approval step is
+    /// assigned to a role rather than to a person — naming the individual would
+    /// make every leaver a stuck workflow. This is the one place role membership
+    /// itself is a business fact; everywhere else, ask for an authorisation
+    /// object instead.
+    /// </summary>
+    Task<IReadOnlyCollection<string>> RoleCodesAsync(
+        CancellationToken cancellationToken = default);
 }

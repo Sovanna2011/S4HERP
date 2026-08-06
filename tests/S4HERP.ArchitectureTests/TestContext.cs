@@ -11,16 +11,9 @@ internal static class TestContext
 {
     public static S4herpDbContext Create()
     {
-        S4herpDbContext.ConfigurationAssemblies.Clear();
-        S4herpDbContext.ConfigurationAssemblies.AddRange(
-        [
-            typeof(Organization.Infrastructure.TenantConfiguration).Assembly,
-            typeof(Security.Infrastructure.UserConfiguration).Assembly,
-            typeof(BusinessPartner.Infrastructure.PartnerConfiguration).Assembly,
-            typeof(Finance.Infrastructure.LedgerConfiguration).Assembly,
-            typeof(Controlling.Infrastructure.ControllingAreaConfiguration).Assembly,
-            typeof(Audit.Infrastructure.AuditLogConfiguration).Assembly,
-        ]);
+        // The host's list, not a copy of it: a model the tests build differently
+        // from the one the application builds proves nothing about the application.
+        S4HERP.Host.Infrastructure.ModuleRegistration.UseModuleConfigurations();
 
         var options = new DbContextOptionsBuilder<S4herpDbContext>()
             .UseSqlServer("Server=model-only;Database=S4HERP;Trusted_Connection=False")

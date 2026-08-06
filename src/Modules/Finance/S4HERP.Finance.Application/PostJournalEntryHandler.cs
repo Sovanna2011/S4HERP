@@ -99,8 +99,15 @@ public sealed class PostJournalEntryHandler(
         var formatted =
             $"KSS-{context.CompanyCode.Code}-{period.FiscalYear}-{command.DocumentType}-{documentNumber:D10}";
 
-        var header = WriteDocument(command, context, period, lines, documentNumber, formatted);
-        await WriteOpenItemsAsync(header, lines, context, cancellationToken);
+        var status = command.Park ? JournalStatus.Parked : JournalStatus.Posted;
+        var header = WriteDocument(command, context, period, lines, documentNumber, formatted, status);
+
+        // Open items are a ledger fact. A parked document has not reached the
+        // ledger, so it owes nobody anything yet; approval creates them.
+        if (!command.Park)
+        {
+            await WriteOpenItemsAsync(header, lines, context, cancellationToken);
+        }
 
         if (command.IdempotencyKey is { Length: > 0 } idempotencyKey)
         {
@@ -115,11 +122,12 @@ public sealed class PostJournalEntryHandler(
             });
         }
 
-        WriteAudit(context, period, documentNumber, formatted);
+        WriteAudit(context, period, documentNumber, formatted, command.Park);
 
         return result with
         {
-            Posted = true,
+            Posted = !command.Park,
+            Status = status.ToString(),
             DocumentNumber = documentNumber,
             DocumentNumberFormatted = formatted,
         };
@@ -730,8 +738,10 @@ public sealed class PostJournalEntryHandler(
 
     private JournalEntryHeader WriteDocument(
         PostJournalEntryCommand command, PostingContext context, FiscalPeriodResult period,
-        List<WorkingLine> lines, long documentNumber, string formatted)
+        List<WorkingLine> lines, long documentNumber, string formatted, JournalStatus status)
     {
+        var parked = status != JournalStatus.Posted;
+
         var header = new JournalEntryHeader
         {
             TenantId = tenant.TenantId,
@@ -750,15 +760,17 @@ public sealed class PostJournalEntryHandler(
             ExchangeRateToGroup = 1m,
             Reference = command.Reference,
             HeaderText = command.HeaderText,
-            Status = JournalStatus.Posted,
+            Status = status,
             SourceModule = SourceModule.GeneralLedger,
-            TransactionCode = "FB50",
+            TransactionCode = parked ? "FV50" : "FB50",
             IdempotencyKey = command.IdempotencyKey,
             CorrelationId = correlation.CorrelationId,
             CreatedBy = user.UserName,
             CreatedAtUtc = clock.UtcNow,
-            PostedBy = user.UserName,
-            PostedAtUtc = clock.UtcNow,
+            // Left unset while parked. "Posted by" on a document that is not in
+            // the ledger would be a false statement in the audit trail.
+            PostedBy = parked ? null : user.UserName,
+            PostedAtUtc = parked ? null : clock.UtcNow,
         };
 
         foreach (var line in lines)
@@ -836,7 +848,8 @@ public sealed class PostJournalEntryHandler(
     }
 
     private void WriteAudit(
-        PostingContext context, FiscalPeriodResult period, long documentNumber, string formatted)
+        PostingContext context, FiscalPeriodResult period, long documentNumber, string formatted,
+        bool parked)
     {
         db.Add(new Audit.Domain.AuditLog
         {
@@ -844,13 +857,16 @@ public sealed class PostJournalEntryHandler(
             OccurredAtUtc = clock.UtcNow,
             UserName = user.UserName,
             CompanyCodeId = context.CompanyCode.Id,
-            Action = Audit.Domain.AuditAction.Post,
+            Action = parked ? Audit.Domain.AuditAction.Park : Audit.Domain.AuditAction.Post,
             ObjectType = "JournalEntry",
             ObjectId = formatted,
-            SourceApi = "POST /api/v1/finance/journal-entries",
-            TransactionCode = "FB50",
+            SourceApi = parked
+                ? "POST /api/v1/finance/journal-entries/park"
+                : "POST /api/v1/finance/journal-entries",
+            TransactionCode = parked ? "FV50" : "FB50",
             CorrelationId = correlation.CorrelationId,
-            Summary = $"Posted document {documentNumber} in period {period.Period:D2}/{period.FiscalYear}.",
+            Summary = $"{(parked ? "Parked" : "Posted")} document {documentNumber} " +
+                      $"in period {period.Period:D2}/{period.FiscalYear}.",
         });
     }
 
@@ -875,7 +891,10 @@ public sealed class PostJournalEntryHandler(
 
         return new PostJournalEntryResult
         {
-            Posted = true,
+            // The replay reports what the document actually is now, not what the
+            // replayed call intended: a parked document replays as parked.
+            Posted = header.Status == JournalStatus.Posted,
+            Status = header.Status.ToString(),
             WasReplay = true,
             CompanyCode = header.CompanyCode.Code,
             FiscalYear = header.FiscalYear,

@@ -12,16 +12,7 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<S4herpDbCo
 {
     public S4herpDbContext CreateDbContext(string[] args)
     {
-        S4herpDbContext.ConfigurationAssemblies.Clear();
-        S4herpDbContext.ConfigurationAssemblies.AddRange(
-        [
-            typeof(Organization.Infrastructure.TenantConfiguration).Assembly,
-            typeof(Security.Infrastructure.UserConfiguration).Assembly,
-            typeof(BusinessPartner.Infrastructure.PartnerConfiguration).Assembly,
-            typeof(Finance.Infrastructure.LedgerConfiguration).Assembly,
-            typeof(Controlling.Infrastructure.ControllingAreaConfiguration).Assembly,
-            typeof(Audit.Infrastructure.AuditLogConfiguration).Assembly,
-        ]);
+        ModuleRegistration.UseModuleConfigurations();
 
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")
             ?? "Server=localhost,1433;Database=S4HERP;User Id=sa;Password=DesignTimeOnly;"

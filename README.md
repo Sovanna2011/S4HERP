@@ -6,14 +6,15 @@ An S/4HANA-inspired, web-based ERP system.
 | --- | --- |
 | 1 — [Solution Blueprint](docs/blueprint/README.md) | Delivered. Five of its six open questions are still unanswered; the assumptions taken are listed in the Phase 2 report |
 | 2 — [Database](docs/phase2/README.md) | Delivered and verified. 83 tables, row-level security, partitioning, seed data, 14/14 integrity rules passing |
-| 3 — [Backend](docs/phase3/README.md) | Delivered. Posting engine, simulation, idempotency, gapless numbering, tax, reversal, authorisation, trial balance. 34/34 checks |
+| 3 — [Backend](docs/phase3/README.md) | Delivered. Posting engine, simulation, idempotency, gapless numbering, tax, reversal, authorisation, trial balance |
+| 3 — [Backend, increment 3](docs/phase3/increment-3-workflow.md) | Delivered. Park, submit, approve, reject, maker-checker, multi-level approval |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**69 automated checks passing** across four suites. Modules still to build —
+**112 automated checks passing** across four suites. Modules still to build —
 Accounts Receivable and Payable processes, Asset Accounting, Controlling
-allocations, Workflow, SE11 and SE16N — are designed in the blueprint and listed
-in each phase report.
+allocations, SE11 and SE16N — are designed in the blueprint and listed in each
+phase report.
 
 ASP.NET Core 10 over SQL Server 2025, containerised with Docker Compose.
 
@@ -44,7 +45,7 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 34 posting-engine checks over HTTP
+./db/tests/posting-engine.sh                     # 77 posting-engine checks over HTTP
 node ui5/test/ui-acceptance.mjs                  # 16 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
@@ -102,6 +103,12 @@ Compose composes from the variables above. Set
 | `POST` | `/api/v1/finance/journal-entries/simulate` | Full accounting impact without posting |
 | `GET` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}` | Display a document (FB03) |
 | `POST` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/reverse` | Reverse a document (FB08) |
+| `POST` | `/api/v1/finance/journal-entries/park` | Park a document without posting (FV50) |
+| `POST` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/submit` | Submit a parked document for approval |
+| `POST` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/approve` | Approve the caller's step; posts on the last one |
+| `POST` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/reject` | Reject, with a mandatory reason |
+| `GET` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/workflow` | Approval state and step history |
+| `GET` | `/api/v1/finance/approvals` | Documents waiting on the calling user |
 | `GET` | `/api/v1/finance/reports/trial-balance` | Trial balance, derived from the journal |
 
 Every call is authorised server-side and denied by default. In Development the
@@ -183,12 +190,12 @@ scaffolding a migration works with no database running.
 ├── docs/
 │   ├── blueprint/                   Phase 1 design
 │   ├── phase2/                      table catalogue, ERDs, phase report
-│   ├── phase3/                      posting-engine phase report
+│   ├── phase3/                      posting-engine and workflow phase reports
 │   └── adr/                         decisions taken after Phase 1
 ├── src/
 │   ├── BuildingBlocks/              shared domain, application and infrastructure
 │   ├── Modules/                     Organization · Security · BusinessPartner
-│   │                                Finance · Controlling · Audit
+│   │                                Finance · Controlling · Audit · Workflow
 │   └── Host/S4HERP.Host/            composition root, migrations, seeder, Dockerfile
 ├── ui5/                             OpenUI5 front end (UI5 Tooling)
 ├── tests/                           architecture tests

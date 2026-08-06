@@ -17,6 +17,8 @@ public enum AuditAction
     Export = 10,
     Login = 11,
     AuthorizationChange = 12,
+    Park = 13,
+    Submit = 14,
 }
 
 /// <summary>

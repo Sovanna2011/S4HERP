@@ -9,6 +9,7 @@ exec docker run --rm --network host \
   ${CCR_CA_BUNDLE:+-v "$CCR_CA_BUNDLE":/usr/local/share/ca-certificates/ccr.crt:ro} \
   -e HTTP_PROXY="${HTTPS_PROXY:-}" -e HTTPS_PROXY="${HTTPS_PROXY:-}" -e NO_PROXY="${NO_PROXY:-}" \
   -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_NOLOGO=1 \
+  ${ConnectionStrings__Default:+-e ConnectionStrings__Default="$ConnectionStrings__Default"} \
   -e PATH="/root/.dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/share/dotnet" \
   --entrypoint /bin/bash mcr.microsoft.com/dotnet/sdk:10.0 -lc \
   "update-ca-certificates >/dev/null 2>&1 || true; dotnet $*"

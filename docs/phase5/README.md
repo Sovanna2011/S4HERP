@@ -9,10 +9,10 @@ setup, and the operational guides below.
 | --- | --- | --- |
 | Architecture (5 checks) | Module boundaries, domain purity, schema ownership, concurrency tokens, tenant filters | `tests/S4HERP.ArchitectureTests` |
 | Database integrity (14 checks) | The §23 rules the database itself must enforce | `db/tests/integrity-rules.sql` |
-| Posting engine (34 checks) | The §23 rules the engine enforces, over HTTP | `db/tests/posting-engine.sh` |
+| Posting engine (77 checks) | The §23 rules the engine enforces, over HTTP, including the approval workflow | `db/tests/posting-engine.sh` |
 | Browser acceptance (16 checks) | The UI journeys, in Chromium against the real API | `ui5/test/ui-acceptance.mjs` |
 
-**69 automated checks**, all passing. Every one asserts a *specific* outcome —
+**112 automated checks**, all passing. Every one asserts a *specific* outcome —
 an error number, an HTTP status plus application error code, a rendered value —
 rather than "it didn't fail". That distinction caught two false green runs during
 development and is worth keeping.
@@ -25,7 +25,7 @@ docker compose up -d --build                      # stack, schema, seed data
 #   npm --prefix ui5 install && npm --prefix ui5 run build
 #   docker compose build --build-arg UI_SOURCE=prebuilt
 
-./db/tests/posting-engine.sh                      # 34 posting-engine checks
+./db/tests/posting-engine.sh                      # 77 posting-engine checks
 node ui5/test/ui-acceptance.mjs                   # 16 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests   # 5 architecture checks
 
@@ -52,6 +52,16 @@ The migration-reversal step exists because a migration without a working `Down`
 is a one-way door, and the time to find that out is not during a rollback. CI
 applies every migration forward against a scratch database and then unwinds it
 to zero.
+
+**It used to skip the post-migration scripts, and that was a hole.** The
+scratch database has no `sec.TenantIsolationPolicy`, and the policy is created
+`WITH SCHEMABINDING` — so on a real database it blocks dropping any table it
+covers, which is every tenant-scoped table. A rollback that CI calls clean failed
+on the first real attempt (error 3729). A migration that drops a tenant-scoped
+table must drop the policy first; `db/scripts/020-row-level-security.sql` rebuilds
+it on the next start. See
+[Phase 3 increment 3](../phase3/increment-3-workflow.md#two-bugs-found-by-running-it).
+The step now runs `--migrate` on the way up, so the unwind faces the real schema.
 
 ## Deployment
 
@@ -158,12 +168,15 @@ serialisation disappears.
 1. **CI has never run.** The workflow is written against GitHub's hosted runners
    and its YAML is validated, but this environment cannot execute GitHub Actions.
    Every step it runs has been executed by hand here; the orchestration has not.
-2. **The image's UI stage is unverified here.** `docker build` defaults to
-   building the OpenUI5 bundle with npm, and this sandbox's proxy intercepts TLS,
-   so npm cannot reach the registry from inside the build. The image was therefore
-   verified with `--build-arg UI_SOURCE=prebuilt`, which copies a bundle built on
-   the host — the same path an air-gapped customer would use. The default path
-   needs one CI run to confirm.
+2. **The image build is unverified since Phase 3 increment 3.** This sandbox's
+   proxy intercepts TLS, and the build container does not carry its CA, so
+   *neither* npm nor NuGet can be reached from inside `docker build` —
+   `dotnet restore` now fails with NU1301 the same way npm did. The UI stage has
+   the `--build-arg UI_SOURCE=prebuilt` escape hatch, which copies a bundle built
+   on the host; restore has no equivalent, so the increment was verified by
+   running the host from source (`./run-host.sh`, which mounts the CA) against
+   the Compose database. Both paths need one CI run on a network without an
+   intercepting proxy to confirm. Nothing about this is a defect in the image.
 3. **No performance testing at volume.** Everything measured so far is at seed
    scale. The journal's indexes and partitioning are designed for hundreds of
    millions of rows, and that claim is untested.
@@ -171,11 +184,15 @@ serialisation disappears.
    shell and Node scripts driving a running system. That is genuinely
    end-to-end, but it means no test runs without a live stack, and there is no
    xUnit integration suite with Testcontainers as the blueprint proposed.
-5. **No security review or dependency scanning step.** CI should run
+5. **The fixed migration-reversal step has not run in CI.** It now applies the
+   post-migration scripts before unwinding, and the rollback it exercises was
+   verified by hand against a live database — but see limitation 1: nothing here
+   can execute GitHub Actions.
+6. **No security review or dependency scanning step.** CI should run
    `dotnet list package --vulnerable` and fail on findings; the
    `Microsoft.OpenApi` advisory found during Phase 1 is exactly what that
    catches.
-6. **No blue/green or canary story.** The release order above is a rolling
+7. **No blue/green or canary story.** The release order above is a rolling
    deployment.
-7. **No monitoring or alerting.** Serilog writes structured logs to the console;
+8. **No monitoring or alerting.** Serilog writes structured logs to the console;
    nothing collects them.

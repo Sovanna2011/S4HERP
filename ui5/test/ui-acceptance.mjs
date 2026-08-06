@@ -171,7 +171,12 @@ check('Khmer resource bundle is applied',
 
 await open('');
 await page.waitForSelector('.sapMGT', { timeout: 30000 });
-await page.screenshot({ path: 'test/screenshot-launchpad.png' });
+// Resolved against this file, not the working directory: the suite is run
+// from the repository root as often as from ui5/, and a relative path
+// quietly writes the screenshot into whichever directory that happens to be.
+await page.screenshot({
+  path: new URL('screenshot-launchpad.png', import.meta.url).pathname,
+});
 
 await browser.close();
 
