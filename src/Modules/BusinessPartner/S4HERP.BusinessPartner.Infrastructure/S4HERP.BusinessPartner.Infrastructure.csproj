@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>S4HERP.BusinessPartner.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <!-- Provider-specific index features (INCLUDE, filtered indexes, partitioning). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../S4HERP.BusinessPartner.Domain/S4HERP.BusinessPartner.Domain.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/S4HERP.BuildingBlocks.Infrastructure/S4HERP.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="../../Organization/S4HERP.Organization.Infrastructure/S4HERP.Organization.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

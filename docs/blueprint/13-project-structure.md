@@ -62,9 +62,11 @@ S4HERP/
 │   └── S4HERP.PostingTests/         the §23 mandatory rules
 │
 ├── db/
-│   ├── migrations/                  generated EF migrations
-│   ├── scripts/                     idempotent SQL, RLS setup, partitioning
-│   └── seed/                        §24 sample data
+│   ├── scripts/                     idempotent SQL: RLS, partitioning, grants,
+│   │                                immutability guards
+│   └── tests/                       database-level integrity assertions
+│                                    (EF migrations live in the Host project,
+│                                     which is where EF requires them)
 │
 ├── docs/
 │   ├── blueprint/                   this Phase 1 blueprint
@@ -157,7 +159,7 @@ with a `Products` CRUD sample. Disposition at the start of Phase 2:
 | `HealthProbe.cs`, `/health/live`, `/health/ready` | Keep. Move to `BuildingBlocks.Api` |
 | `DatabaseMigrator` background service | Keep for development; Phase 5 splits deployment-time migration for production |
 | `DesignTimeDbContextFactory` | Keep, one per module context |
-| `Products` model, endpoints, `InitialCreate` migration | **Delete.** Placeholder that contradicts this design |
+| `Products` model, endpoints, `InitialCreate` migration | **Deleted in Phase 2.** |
 | `Microsoft.OpenApi` pin at 2.11.0 | Keep, and move to `Directory.Packages.props`. Re-check when `Microsoft.AspNetCore.OpenApi` bumps its transitive pin |
 | `.gitignore`, `.dockerignore`, `.env.example` | Keep |
 

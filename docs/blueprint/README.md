@@ -1,7 +1,13 @@
 # S4HERP — Phase 1: Solution Blueprint
 
-Status: **Draft, awaiting review and approval.** No production code is to be
-written against this design until it is signed off.
+Status: **Approved and in build.** Phase 2 (Database) is delivered — see
+[docs/phase2](../phase2/README.md) for what was built and verified, and
+[docs/adr/016-018](../adr/016-018-phase2-decisions.md) for the three decisions
+taken during it plus one correction to this blueprint (the formatted document
+number must carry the company code).
+
+This document remains the reviewed baseline; later deltas are recorded as ADRs
+rather than edited in, so the two stay distinguishable.
 
 This blueprint covers the twelve areas named in the starting instruction:
 architecture, module boundaries, enterprise structure, BP synchronisation, the
@@ -74,6 +80,9 @@ answer before Phase 2 starts; they are collected under *Open questions* below.
 | ADR-13 | No DDL from the browser — SE11 activation emits a migration into a pull request | [07](07-data-dictionary-se11.md#adr-13) |
 | ADR-14 | SE16N runs on a physically read-only SQL login | [08](08-table-browser-se16n.md#adr-14) |
 | ADR-15 | ⚠ OpenUI5 pinned to a maintenance line; smart controls and `sap.viz` are **not** in OpenUI5 | [01](01-solution-architecture.md#adr-15) |
+| ADR-16 | One `DbContext`, not one per module | [adr](../adr/016-018-phase2-decisions.md#adr-16) |
+| ADR-17 | `Organization.Domain` is the shared kernel | [adr](../adr/016-018-phase2-decisions.md#adr-17) |
+| ADR-18 | No foreign keys on journal dimension columns | [adr](../adr/016-018-phase2-decisions.md#adr-18) |
 
 ## Verified stack findings
 
@@ -115,10 +124,8 @@ worth answering before any table is created.
 5. **Khmer collation and fonts.** Khmer text in `NVARCHAR` is safe, but sort
    order needs an explicit collation choice, and Khmer numerals and date formats
    need a decision for reports and printed documents.
-6. **Existing scaffold.** The repository currently holds a working Docker/.NET
-   10/SQL Server 2025 stack with a throwaway `Products` CRUD sample. The
-   infrastructure carries forward into Phase 5; the sample contradicts this
-   design and should be deleted at the start of Phase 2. Confirm.
+6. ~~**Existing scaffold.**~~ **Resolved.** The `Products` sample is deleted; the
+   container stack carried forward.
 
 ## What Phase 1 deliberately does not contain
 

@@ -28,7 +28,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: src/S4HERP.Api/Dockerfile
+      dockerfile: src/Host/S4HERP.Host/Dockerfile
     image: s4herp-api:latest
     container_name: s4herp-api
     depends_on:

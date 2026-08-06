@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>S4HERP.Organization.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/S4HERP.BuildingBlocks.Domain/S4HERP.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+
+</Project>
