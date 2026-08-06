@@ -1,0 +1,10 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.App"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    displayBlock="true"
+    height="100%">
+    <Shell id="shell">
+        <App id="appContainer" busyIndicatorDelay="0"/>
+    </Shell>
+</mvc:View>

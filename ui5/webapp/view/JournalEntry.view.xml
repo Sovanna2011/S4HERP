@@ -1,0 +1,165 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.JournalEntry"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns:form="sap.ui.layout.form"
+    xmlns:core="sap.ui.core">
+    <f:DynamicPage id="journalPage" headerExpanded="true" showFooter="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="{i18n>journalEntryTitle}"/>
+                </f:heading>
+                <f:snappedContent>
+                    <Text text="{/header/companyCode} · {/header/documentType} · {/header/currency}"/>
+                </f:snappedContent>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                 columnsM="2" columnsL="3" columnsXL="3">
+                    <Label text="{i18n>companyCode}" required="true"/>
+                    <Select selectedKey="{/header/companyCode}">
+                        <core:Item key="1000" text="1000 — KSS Cambodia"/>
+                        <core:Item key="1100" text="1100 — KSS Kampot"/>
+                        <core:Item key="2000" text="2000 — KSS Thailand"/>
+                    </Select>
+
+                    <Label text="{i18n>documentType}" required="true"/>
+                    <Select selectedKey="{/header/documentType}">
+                        <core:Item key="SA" text="SA — {i18n>docTypeSA}"/>
+                        <core:Item key="AB" text="AB — {i18n>docTypeAB}"/>
+                    </Select>
+
+                    <Label text="{i18n>currency}" required="true"/>
+                    <Select selectedKey="{/header/currency}">
+                        <core:Item key="USD" text="USD"/>
+                        <core:Item key="KHR" text="KHR"/>
+                        <core:Item key="THB" text="THB"/>
+                    </Select>
+
+                    <Label text="{i18n>documentDate}" required="true"/>
+                    <DatePicker value="{/header/documentDate}"
+                                valueFormat="yyyy-MM-dd" displayFormat="yyyy-MM-dd"/>
+
+                    <Label text="{i18n>postingDate}" required="true"/>
+                    <DatePicker value="{/header/postingDate}"
+                                valueFormat="yyyy-MM-dd" displayFormat="yyyy-MM-dd"/>
+
+                    <Label text="{i18n>reference}"/>
+                    <Input value="{/header/reference}" maxLength="30"/>
+
+                    <Label text="{i18n>headerText}"/>
+                    <Input value="{/header/headerText}" maxLength="50"/>
+                </form:SimpleForm>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <VBox>
+                <Toolbar>
+                    <Title text="{i18n>lineItems}" level="H4"/>
+                    <ToolbarSpacer/>
+                    <Button icon="sap-icon://add" text="{i18n>addLine}" press=".onAddLine"/>
+                    <Button icon="sap-icon://delete" text="{i18n>removeLine}" press=".onRemoveLine"/>
+                </Toolbar>
+
+                <Table id="lineTable" items="{/lines}" mode="MultiSelect"
+                       growing="true" growingThreshold="20"
+                       noDataText="{i18n>noLines}">
+                    <columns>
+                        <Column width="6rem"><Text text="{i18n>postingKey}"/></Column>
+                        <Column width="10rem"><Text text="{i18n>glAccount}"/></Column>
+                        <Column width="9rem" minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>costCenter}"/></Column>
+                        <Column width="6rem" minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>taxCode}"/></Column>
+                        <Column hAlign="End" width="9rem"><Text text="{i18n>amount}"/></Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>lineText}"/></Column>
+                    </columns>
+                    <items>
+                        <ColumnListItem>
+                            <cells>
+                                <Select selectedKey="{postingKey}">
+                                    <core:Item key="40" text="40 {i18n>debit}"/>
+                                    <core:Item key="50" text="50 {i18n>credit}"/>
+                                </Select>
+                                <Input value="{glAccount}" maxLength="10" placeholder="6000000000"/>
+                                <Input value="{costCenter}" maxLength="10" placeholder="CC101000"/>
+                                <Input value="{taxCode}" maxLength="2" placeholder="V1"/>
+                                <Input value="{amount}" type="Number" textAlign="End" placeholder="0.00"/>
+                                <Input value="{lineText}" maxLength="50" placeholder="{i18n>lineText}"/>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+
+                <!-- Simulation result: the complete accounting impact, produced by
+                     the same engine pass that posting uses. -->
+                <Panel id="simulationPanel" visible="{/simulation/visible}"
+                       headerText="{i18n>simulationResult}"
+                       class="sapUiSmallMarginTop">
+                    <Table items="{/simulation/lines}">
+                        <columns>
+                            <Column><Text text="{i18n>lineNumber}"/></Column>
+                            <Column><Text text="{i18n>account}"/></Column>
+                            <Column><Text text="{i18n>costCenter}"/></Column>
+                            <Column><Text text="{i18n>profitCenter}"/></Column>
+                            <Column><Text text="{i18n>segment}"/></Column>
+                            <Column hAlign="End"><Text text="{i18n>documentAmount}"/></Column>
+                            <Column hAlign="End"><Text text="{i18n>localAmount}"/></Column>
+                            <Column><Text text="{i18n>generated}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <Text text="{lineNumber}"/>
+                                    <ObjectIdentifier title="{glAccount}{businessPartner}"
+                                                      text="{accountType}"/>
+                                    <Text text="{costCenter}"/>
+                                    <Text text="{profitCenter}"/>
+                                    <Text text="{segment}"/>
+                                    <ObjectNumber number="{path: 'documentAmount', formatter: '.formatter.amount'}"
+                                                  unit="{documentCurrency}"
+                                                  state="{path: 'debitCredit', formatter: '.formatter.debitCreditState'}"/>
+                                    <ObjectNumber number="{path: 'localAmount', formatter: '.formatter.amount'}"
+                                                  unit="{localCurrency}"/>
+                                    <ObjectStatus text="{= ${isGenerated} ? ${i18n>yes} : '' }"
+                                                  state="Information"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </Panel>
+            </VBox>
+        </f:content>
+
+        <f:footer>
+            <OverflowToolbar>
+                <ObjectStatus id="totalDebit"
+                              title="{i18n>totalDebit}"
+                              text="{path: '/totals/debit', formatter: '.formatter.amount'}"/>
+                <ObjectStatus id="totalCredit"
+                              title="{i18n>totalCredit}"
+                              text="{path: '/totals/credit', formatter: '.formatter.amount'}"/>
+                <ObjectStatus id="difference"
+                              title="{i18n>difference}"
+                              text="{path: '/totals/difference', formatter: '.formatter.amount'}"
+                              state="{path: '/totals/difference', formatter: '.formatter.differenceState'}"/>
+                <ToolbarSpacer/>
+                <Button id="messagesButton"
+                        icon="sap-icon://message-popup"
+                        text="{/messageCount}"
+                        visible="{= ${/messageCount} > 0 }"
+                        type="Negative"
+                        press=".onShowMessages"/>
+                <Button id="simulateButton" text="{i18n>simulate}" press=".onSimulate"/>
+                <Button id="postButton" text="{i18n>post}" type="Emphasized" press=".onPost"/>
+            </OverflowToolbar>
+        </f:footer>
+    </f:DynamicPage>
+</mvc:View>

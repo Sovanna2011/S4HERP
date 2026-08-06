@@ -23,3 +23,11 @@ appsettings.Local.json
 # OS
 .DS_Store
 Thumbs.db
+
+# UI5
+ui5/node_modules/
+ui5/dist/
+# Built UI5 bundle: produced by `npm --prefix ui5 run build`, not edited by hand.
+src/Host/S4HERP.Host/wwwroot/
+# Generated from i18n.properties at build time.
+ui5/webapp/i18n/i18n_en.properties

@@ -1,0 +1,89 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.Launchpad"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core">
+    <f:DynamicPage id="launchpadPage" headerExpanded="true" showFooter="false">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="{i18n>launchpadTitle}"/>
+                </f:heading>
+                <f:expandedContent>
+                    <Text text="{i18n>launchpadSubtitle}"/>
+                </f:expandedContent>
+                <f:actions>
+                    <!-- Context selectors live in the shell and are published to
+                         every app, so switching here switches everywhere. -->
+                    <Label text="{i18n>companyCode}" labelFor="companyCodeSelect"/>
+                    <Select id="companyCodeSelect"
+                            selectedKey="{context>/companyCode}"
+                            change=".onContextChanged"
+                            tooltip="{i18n>companyCodeTooltip}">
+                        <core:Item key="1000" text="1000 — KSS Cambodia"/>
+                        <core:Item key="1100" text="1100 — KSS Kampot"/>
+                        <core:Item key="2000" text="2000 — KSS Thailand"/>
+                    </Select>
+                    <Label text="{i18n>fiscalYear}" labelFor="fiscalYearSelect"/>
+                    <Select id="fiscalYearSelect"
+                            selectedKey="{context>/fiscalYear}"
+                            change=".onContextChanged">
+                        <core:Item key="2026" text="2026"/>
+                        <core:Item key="2027" text="2027"/>
+                    </Select>
+                    <Label text="{i18n>user}" labelFor="userSelect"/>
+                    <Select id="userSelect"
+                            selectedKey="{context>/userName}"
+                            change=".onContextChanged"
+                            tooltip="{i18n>userTooltip}">
+                        <core:Item key="seed.accountant" text="{i18n>userAccountant}"/>
+                        <core:Item key="seed.clerk" text="{i18n>userClerk}"/>
+                        <core:Item key="seed.auditor" text="{i18n>userAuditor}"/>
+                    </Select>
+                    <Button id="languageButton"
+                            icon="sap-icon://world"
+                            text="{context>/language}"
+                            press=".onToggleLanguage"
+                            tooltip="{i18n>languageTooltip}"/>
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:content>
+            <VBox class="sapUiSmallMargin">
+                <SearchField id="globalSearch"
+                             width="100%"
+                             placeholder="{i18n>globalSearchPlaceholder}"
+                             search=".onGlobalSearch"
+                             class="sapUiSmallMarginBottom"/>
+
+                <Title text="{i18n>sectionApplications}" level="H3" class="sapUiSmallMarginTop"/>
+                <HBox id="tileContainer" wrap="Wrap" items="{/tiles}">
+                    <GenericTile
+                        header="{name}"
+                        subheader="{transactionCode}"
+                        press=".onTilePress"
+                        class="sapUiTinyMargin tileLayout"
+                        frameType="OneByOne">
+                        <TileContent unit="{module}">
+                            <ImageContent src="{icon}"/>
+                        </TileContent>
+                    </GenericTile>
+                </HBox>
+
+                <Title text="{i18n>sectionRecents}" level="H3" class="sapUiSmallMarginTop"/>
+                <List id="recentList"
+                      items="{context>/recents}"
+                      noDataText="{i18n>noRecents}">
+                    <StandardListItem
+                        title="{context>title}"
+                        description="{context>subtitle}"
+                        icon="sap-icon://history"
+                        type="Navigation"
+                        press=".onRecentPress"/>
+                </List>
+            </VBox>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

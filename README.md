@@ -6,9 +6,14 @@ An S/4HANA-inspired, web-based ERP system.
 | --- | --- |
 | 1 — [Solution Blueprint](docs/blueprint/README.md) | Delivered. Five of its six open questions are still unanswered; the assumptions taken are listed in the Phase 2 report |
 | 2 — [Database](docs/phase2/README.md) | Delivered and verified. 83 tables, row-level security, partitioning, seed data, 14/14 integrity rules passing |
-| 3 — [Backend](docs/phase3/README.md) | **Increment 1 delivered.** Posting engine, simulation, idempotency, gapless numbering, authorisation, trial balance. 25/25 acceptance checks passing |
-| 4 — SAPUI5 frontend | Blocked on the SAPUI5 licence question |
-| 5 — Testing and deployment | — |
+| 3 — [Backend](docs/phase3/README.md) | Delivered. Posting engine, simulation, idempotency, gapless numbering, tax, reversal, authorisation, trial balance. 34/34 checks |
+| 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
+| 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
+
+**69 automated checks passing** across four suites. Modules still to build —
+Accounts Receivable and Payable processes, Asset Accounting, Controlling
+allocations, Workflow, SE11 and SE16N — are designed in the blueprint and listed
+in each phase report.
 
 ASP.NET Core 10 over SQL Server 2025, containerised with Docker Compose.
 
@@ -32,14 +37,16 @@ On first run the host applies EF Core migrations, then the idempotent scripts in
 then seeds the §24 sample data. Readiness stays red until all of that completes.
 
 ```bash
-curl http://localhost:8080/
+curl http://localhost:8080/api/v1/about
 curl http://localhost:8080/health/ready
 ```
 
-Run the acceptance suites:
+Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                 # 25 posting-engine checks over HTTP
+./db/tests/posting-engine.sh                     # 34 posting-engine checks over HTTP
+node ui5/test/ui-acceptance.mjs                  # 16 browser checks
+./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
 
 Verify the database-level integrity rules:
@@ -94,6 +101,7 @@ Compose composes from the variables above. Set
 | `POST` | `/api/v1/finance/journal-entries` | Post an accounting document (FB50) |
 | `POST` | `/api/v1/finance/journal-entries/simulate` | Full accounting impact without posting |
 | `GET` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}` | Display a document (FB03) |
+| `POST` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/reverse` | Reverse a document (FB08) |
 | `GET` | `/api/v1/finance/reports/trial-balance` | Trial balance, derived from the journal |
 
 Every call is authorised server-side and denied by default. In Development the
@@ -177,11 +185,14 @@ scaffolding a migration works with no database running.
 │   ├── phase2/                      table catalogue, ERDs, phase report
 │   ├── phase3/                      posting-engine phase report
 │   └── adr/                         decisions taken after Phase 1
-└── src/
-    ├── BuildingBlocks/              shared domain + infrastructure
-    ├── Modules/                     Organization · Security · BusinessPartner
-    │                                Finance · Controlling · Audit
-    └── Host/S4HERP.Host/            composition root, migrations, seeder, Dockerfile
+├── src/
+│   ├── BuildingBlocks/              shared domain, application and infrastructure
+│   ├── Modules/                     Organization · Security · BusinessPartner
+│   │                                Finance · Controlling · Audit
+│   └── Host/S4HERP.Host/            composition root, migrations, seeder, Dockerfile
+├── ui5/                             OpenUI5 front end (UI5 Tooling)
+├── tests/                           architecture tests
+└── .github/workflows/ci.yml         build · architecture · schema · acceptance · image
 ```
 
 ## Notes

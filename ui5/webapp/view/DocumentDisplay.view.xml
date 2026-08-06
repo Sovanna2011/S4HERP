@@ -1,0 +1,77 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.DocumentDisplay"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns:form="sap.ui.layout.form">
+    <f:DynamicPage id="documentPage" headerExpanded="true" showFooter="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title id="documentTitle" text="{/documentNumberFormatted}"/></f:heading>
+                <f:expandedContent>
+                    <ObjectStatus text="{/status}"
+                                  state="{path: '/status', formatter: '.formatter.documentStatusState'}"/>
+                </f:expandedContent>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <form:SimpleForm editable="false" layout="ResponsiveGridLayout" columnsL="3" columnsM="2">
+                    <Label text="{i18n>companyCode}"/><Text text="{/companyCode}"/>
+                    <Label text="{i18n>fiscalYear}"/><Text text="{/fiscalYear}"/>
+                    <Label text="{i18n>period}"/><Text text="{/fiscalPeriod}"/>
+                    <Label text="{i18n>documentType}"/><Text text="{/documentType}"/>
+                    <Label text="{i18n>postingDate}"/><Text text="{/postingDate}"/>
+                    <Label text="{i18n>currency}"/><Text text="{/currency}"/>
+                    <Label text="{i18n>reference}"/><Text text="{/reference}"/>
+                    <Label text="{i18n>headerText}"/><Text text="{/headerText}"/>
+                </form:SimpleForm>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <Table id="documentLines" items="{/lines}">
+                <columns>
+                    <Column width="4rem"><Text text="{i18n>lineNumber}"/></Column>
+                    <Column width="6rem"><Text text="{i18n>postingKey}"/></Column>
+                    <Column><Text text="{i18n>account}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>costCenter}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>profitCenter}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>documentAmount}"/></Column>
+                    <Column hAlign="End" minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>localAmount}"/></Column>
+                    <Column minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>lineText}"/></Column>
+                </columns>
+                <items>
+                    <ColumnListItem>
+                        <cells>
+                            <Text text="{lineNumber}"/>
+                            <Text text="{postingKey}"/>
+                            <ObjectIdentifier title="{glAccount}" text="{businessPartner}"/>
+                            <Text text="{costCenter}"/>
+                            <Text text="{profitCenter}"/>
+                            <ObjectNumber number="{path: 'documentAmount', formatter: '.formatter.amount'}"
+                                          state="{path: 'debitCredit', formatter: '.formatter.debitCreditState'}"/>
+                            <Text text="{path: 'localAmount', formatter: '.formatter.signedAmount'}"/>
+                            <Text text="{lineText}"/>
+                        </cells>
+                    </ColumnListItem>
+                </items>
+            </Table>
+        </f:content>
+
+        <f:footer>
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="reverseButton"
+                        text="{i18n>reverse}"
+                        type="Reject"
+                        enabled="{= ${/status} === 'Posted' }"
+                        press=".onReverse"/>
+            </OverflowToolbar>
+        </f:footer>
+    </f:DynamicPage>
+</mvc:View>

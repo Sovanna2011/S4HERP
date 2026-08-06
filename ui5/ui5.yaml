@@ -1,0 +1,14 @@
+specVersion: "4.0"
+metadata:
+  name: s4herp.ui
+type: application
+framework:
+  name: OpenUI5
+  version: "1.120.48"
+  libraries:
+    - name: sap.m
+    - name: sap.f
+    - name: sap.ui.core
+    - name: sap.ui.layout
+    - name: sap.ui.unified
+    - name: themelib_sap_horizon

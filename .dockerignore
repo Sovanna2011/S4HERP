@@ -19,3 +19,8 @@
 **/.dockerignore
 **/README.md
 **/LICENSE
+
+# ui5/node_modules is large and never needed in the image; the UI is either built
+# in the `ui` stage or supplied prebuilt as wwwroot.
+ui5/node_modules
+ui5/dist

@@ -1,0 +1,68 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.TrialBalance"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f">
+    <f:DynamicPage id="trialBalancePage" headerExpanded="true" showFooter="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title text="{i18n>trialBalanceTitle}"/></f:heading>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                </f:navigationActions>
+                <f:actions>
+                    <Button icon="sap-icon://refresh" text="{i18n>refresh}" press=".onRefresh"/>
+                    <Button icon="sap-icon://excel-attachment" text="{i18n>exportCsv}" press=".onExport"/>
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:content>
+            <VBox>
+                <MessageStrip
+                    text="{i18n>trialBalanceDerived}"
+                    type="Information"
+                    showIcon="true"
+                    class="sapUiSmallMargin"/>
+
+                <Table id="balanceTable" items="{/rows}" noDataText="{i18n>noPostings}"
+                       growing="true" growingThreshold="50">
+                    <columns>
+                        <Column width="12rem"><Text text="{i18n>glAccount}"/></Column>
+                        <Column><Text text="{i18n>description}"/></Column>
+                        <Column hAlign="End" width="10rem"><Text text="{i18n>debit}"/></Column>
+                        <Column hAlign="End" width="10rem"><Text text="{i18n>credit}"/></Column>
+                        <Column hAlign="End" width="10rem"><Text text="{i18n>balance}"/></Column>
+                    </columns>
+                    <items>
+                        <ColumnListItem>
+                            <cells>
+                                <ObjectIdentifier title="{glAccount}"/>
+                                <Text text="{description}"/>
+                                <Text text="{path: 'debit', formatter: '.formatter.amount'}"/>
+                                <Text text="{path: 'credit', formatter: '.formatter.amount'}"/>
+                                <ObjectNumber number="{path: 'balance', formatter: '.formatter.signedAmount'}"
+                                              unit="{/currency}"/>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+            </VBox>
+        </f:content>
+
+        <f:footer>
+            <OverflowToolbar>
+                <ObjectStatus title="{i18n>totalDebit}"
+                              text="{path: '/totalDebit', formatter: '.formatter.amount'}"/>
+                <ObjectStatus title="{i18n>totalCredit}"
+                              text="{path: '/totalCredit', formatter: '.formatter.amount'}"/>
+                <ObjectStatus id="tbDifference"
+                              title="{i18n>difference}"
+                              text="{path: '/difference', formatter: '.formatter.amount'}"
+                              state="{path: '/difference', formatter: '.formatter.differenceState'}"/>
+                <ToolbarSpacer/>
+                <Text text="{/companyCode} · {/fiscalYear} · {/currency}"/>
+            </OverflowToolbar>
+        </f:footer>
+    </f:DynamicPage>
+</mvc:View>

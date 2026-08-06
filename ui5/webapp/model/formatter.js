@@ -1,0 +1,42 @@
+sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
+    "use strict";
+
+    const amount = NumberFormat.getFloatInstance({
+        minFractionDigits: 2, maxFractionDigits: 2, groupingEnabled: true
+    });
+
+    return {
+        /** Amounts are stored signed; the ledger view shows magnitude with an indicator. */
+        amount(value) {
+            if (value === null || value === undefined || value === "") {
+                return "";
+            }
+            return amount.format(Math.abs(Number(value)));
+        },
+
+        signedAmount(value) {
+            if (value === null || value === undefined || value === "") {
+                return "";
+            }
+            return amount.format(Number(value));
+        },
+
+        debitCreditState(indicator) {
+            return indicator === "D" ? "Information" : "Success";
+        },
+
+        differenceState(value) {
+            return Number(value) === 0 ? "Success" : "Error";
+        },
+
+        documentStatusState(status) {
+            switch (status) {
+                case "Posted": return "Success";
+                case "Reversed": return "Warning";
+                case "Rejected":
+                case "Cancelled": return "Error";
+                default: return "None";
+            }
+        }
+    };
+});

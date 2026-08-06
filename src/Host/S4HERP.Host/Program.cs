@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using S4HERP.Finance.Api;
 using S4HERP.Host;
@@ -9,6 +10,15 @@ using S4HERP.Host.Infrastructure;
 if (args.Contains("--healthcheck"))
 {
     return await HealthProbe.RunAsync();
+}
+
+// Deployment-time schema setup: `dotnet S4HERP.Host.dll --migrate` applies
+// migrations and the post-migration scripts, then exits. Production runs this as
+// a job before the new replicas start, because three replicas racing to migrate
+// is not a plan (blueprint 12).
+if (args.Contains("--migrate"))
+{
+    return await MigrateCommand.RunAsync(args);
 }
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +38,26 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+// The built OpenUI5 bundle. Served from the host so the whole system is one
+// deployable and works with no outbound network access — the UI5 CDN is not a
+// dependency (ADR-15).
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // UI5 resource bundles are .properties, which has no registered MIME type,
+    // and the static file middleware serves only known types. Without this every
+    // i18n bundle 404s and the UI silently falls back to control defaults.
+    ContentTypeProvider = new FileExtensionContentTypeProvider
+    {
+        Mappings =
+        {
+            [".properties"] = "text/plain; charset=utf-8",
+            [".fragment.xml"] = "application/xml",
+        },
+    },
+});
+
 app.UseMiddleware<RequestContextMiddleware>();
 
 if (app.Environment.IsDevelopment())
@@ -54,12 +84,13 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 
 app.MapFinanceEndpoints();
 
-app.MapGet("/", () => Results.Ok(new
+// The UI is served at /, so the service banner moves to its own route.
+app.MapGet("/api/v1/about", () => Results.Ok(new
 {
     service = "S4HERP",
-    phase = "3 - Backend (posting engine)",
     status = "running",
     docs = "/openapi/v1.json",
+    ui = "/index.html",
 }));
 
 app.Run();

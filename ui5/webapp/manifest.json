@@ -1,0 +1,66 @@
+{
+  "_version": "1.60.0",
+  "sap.app": {
+    "id": "s4herp.ui",
+    "type": "application",
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
+    "applicationVersion": { "version": "1.0.0" },
+    "i18n": "i18n/i18n.properties"
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": { "desktop": true, "tablet": true, "phone": true }
+  },
+  "sap.ui5": {
+    "rootView": {
+      "viewName": "s4herp.ui.view.App",
+      "type": "XML",
+      "async": true,
+      "id": "app"
+    },
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.ui.core": {},
+        "sap.m": {},
+        "sap.f": {},
+        "sap.ui.layout": {}
+      }
+    },
+    "contentDensities": { "compact": true, "cozy": true },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "s4herp.ui.i18n.i18n",
+          "supportedLocales": ["", "en", "km"],
+          "fallbackLocale": "en"
+        }
+      }
+    },
+    "routing": {
+      "config": {
+        "routerClass": "sap.m.routing.Router",
+        "viewType": "XML",
+        "viewPath": "s4herp.ui.view",
+        "controlId": "appContainer",
+        "controlAggregation": "pages",
+        "async": true,
+        "transition": "slide"
+      },
+      "routes": [
+        { "pattern": "", "name": "launchpad", "target": "launchpad" },
+        { "pattern": "journal/create", "name": "journalCreate", "target": "journalEntry" },
+        { "pattern": "journal/display/{companyCode}/{fiscalYear}/{documentNumber}", "name": "journalDisplay", "target": "documentDisplay" },
+        { "pattern": "reports/trial-balance", "name": "trialBalance", "target": "trialBalance" }
+      ],
+      "targets": {
+        "launchpad": { "viewId": "launchpad", "viewName": "Launchpad", "viewLevel": 1 },
+        "journalEntry": { "viewId": "journalEntry", "viewName": "JournalEntry", "viewLevel": 2 },
+        "documentDisplay": { "viewId": "documentDisplay", "viewName": "DocumentDisplay", "viewLevel": 2 },
+        "trialBalance": { "viewId": "trialBalance", "viewName": "TrialBalance", "viewLevel": 2 }
+      }
+    }
+  }
+}

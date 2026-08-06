@@ -70,12 +70,20 @@ public class DatabaseMigrator(
         }
     }
 
-    /// <summary>
-    /// Runs db/scripts/*.sql in name order. Each script must be idempotent — they
-    /// are re-executed on every start.
-    /// </summary>
-    private async Task RunPostMigrationScriptsAsync(
-        S4herpDbContext db, CancellationToken cancellationToken)
+    private Task RunPostMigrationScriptsAsync(
+        S4herpDbContext db, CancellationToken cancellationToken) =>
+        PostMigrationScripts.ApplyAsync(db, logger, cancellationToken);
+}
+
+/// <summary>
+/// Runs db/scripts/*.sql in name order. Shared by startup migration and the
+/// deployment-time --migrate command. Every script must be idempotent: they are
+/// re-executed on every run.
+/// </summary>
+public static class PostMigrationScripts
+{
+    public static async Task ApplyAsync(
+        S4herpDbContext db, ILogger logger, CancellationToken cancellationToken)
     {
         var directory = ResolveScriptDirectory();
         if (directory is null)
