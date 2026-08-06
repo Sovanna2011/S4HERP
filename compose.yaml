@@ -1,0 +1,47 @@
+name: s4herp
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: s4herp-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env}
+      MSSQL_PID: ${MSSQL_PID:-Developer}
+    ports:
+      - "${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      # SQL Server is only "ready" once it answers a query, not when the port opens.
+      test:
+        [
+          "CMD-SHELL",
+          '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b -o /dev/null',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: src/S4HERP.Api/Dockerfile
+    image: s4herp-api:latest
+    container_name: s4herp-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Default: >-
+        Server=db,1433;Database=${MSSQL_DATABASE:-S4HERP};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True
+    ports:
+      - "${API_PORT:-8080}:8080"
+    # Health check is defined in the image (src/S4HERP.Api/Dockerfile).
+    restart: unless-stopped
+
+volumes:
+  mssql-data:

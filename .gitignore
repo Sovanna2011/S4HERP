@@ -1,0 +1,25 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+*.user
+appsettings.Local.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.userprefs
+
+# OS
+.DS_Store
+Thumbs.db
