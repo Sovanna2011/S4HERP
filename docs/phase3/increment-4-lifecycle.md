@@ -135,7 +135,9 @@ the delete plan.
 
 ## Verification
 
-Four suites, **144 checks**, all passing.
+Four suites, **144 checks**, all passing — and, unlike increments 2 and 3, run
+against the **container image** rather than the host running from source. See
+[the note on the CA below](#the-image-build-behind-a-tls-inspecting-proxy).
 
 | Suite | Checks | Was |
 | --- | --- | --- |
@@ -197,6 +199,31 @@ Both would have read as passes if the assertions had been looser:
   documents earlier suites left pending, so it opened the wrong document and
   everything after it failed. It now selects the row for the document under
   test.
+
+## The image build behind a TLS-inspecting proxy
+
+Increment 3 recorded that the image could not be built here, because the sandbox
+intercepts TLS and the build container does not trust its root certificate —
+`dotnet restore` fails with `UntrustedRoot`, which NuGet reports as `NU1301`,
+wording that sends you looking at the feed rather than at the proxy. Increment 3
+was therefore verified by running the host from source.
+
+That was a workaround for a problem real customers have. Corporate networks
+routinely re-sign TLS, and an on-premise ERP is exactly the kind of software that
+gets built on one. So the Dockerfile now takes an optional root certificate:
+
+```bash
+EXTRA_CA_BUNDLE=/path/to/corporate-root.crt docker compose build
+docker build --secret id=extra_ca,src=/path/to/corporate-root.crt ...
+```
+
+A BuildKit secret rather than a `COPY`, so the certificate is never a layer in
+the image, and optional — unset it mounts as an empty file and the guard skips
+it. Verified in all three states: a real certificate, `/dev/null` (what Compose
+substitutes when `EXTRA_CA_BUNDLE` is unset), and no secret passed at all.
+
+With it, the image builds, and this increment's 144 checks were run against the
+running container instead of a source run.
 
 ## Files
 

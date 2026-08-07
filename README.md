@@ -8,7 +8,7 @@ An S/4HANA-inspired, web-based ERP system.
 | 2 — [Database](docs/phase2/README.md) | Delivered and verified. 83 tables, row-level security, partitioning, seed data, 14/14 integrity rules passing |
 | 3 — [Backend](docs/phase3/README.md) | Delivered. Posting engine, simulation, idempotency, gapless numbering, tax, reversal, authorisation, trial balance |
 | 3 — [Backend, increment 3](docs/phase3/increment-3-workflow.md) | Delivered. Park, submit, approve, reject, maker-checker, multi-level approval |
-| 3 — [Increment 4](docs/phase3/increment-4-lifecycle.md) | Delivered. Withdraw, discard, approvals inbox and the approval screens |
+| 3 — [Increment 4](docs/phase3/increment-4-lifecycle.md) | Delivered. Withdraw, discard, approvals inbox and the approval screens. All 144 checks run against the container image |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
@@ -62,6 +62,35 @@ docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd \
 `-I` is required: `sqlcmd` defaults `QUOTED_IDENTIFIER` to OFF, and DML against a
 filtered index fails without it.
 
+### Building behind a TLS-inspecting proxy
+
+Corporate networks routinely terminate and re-sign TLS. Inside `docker build`
+that makes every package restore fail with `UntrustedRoot` — NuGet reports it as
+`NU1301`, which reads as though the feed were down. Point `EXTRA_CA_BUNDLE` at
+the proxy's root certificate:
+
+```bash
+echo 'EXTRA_CA_BUNDLE=/etc/ssl/certs/corporate-root.crt' >> .env
+docker compose build
+```
+
+It is passed as a BuildKit secret, so the certificate is never a layer in the
+image, and it is optional — unset, it mounts as an empty file and the build skips
+it. Plain `docker build` takes the same thing directly:
+
+```bash
+docker build --secret id=extra_ca,src=/path/to/corporate-root.crt \
+  -f src/Host/S4HERP.Host/Dockerfile -t s4herp-api:latest .
+```
+
+If the builder has no npm access at all, build the OpenUI5 bundle on the host and
+copy it in instead:
+
+```bash
+npm --prefix ui5 install && npm --prefix ui5 run build
+docker compose build --build-arg UI_SOURCE=prebuilt
+```
+
 OpenAPI document (Development environment only): <http://localhost:8080/openapi/v1.json>
 
 Tear down, keeping the database volume:
@@ -88,6 +117,7 @@ All settings come from `.env` (see `.env.example`):
 | `MSSQL_PORT` | `1433` | Host port mapped to SQL Server. |
 | `API_PORT` | `8080` | Host port mapped to the API. |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | Set to `Production` for deployments. |
+| `EXTRA_CA_BUNDLE` | _unset_ | Root certificate of a TLS-inspecting proxy, trusted during the image build only. See below. |
 
 The API reads its connection string from `ConnectionStrings__Default`, which
 Compose composes from the variables above. Set

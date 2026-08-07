@@ -79,6 +79,19 @@ Development still migrates on startup, which is right for a single container and
 wrong for a cluster: three replicas racing to migrate is not a plan. Production
 sets `RunMigrationsOnStartup=false` and runs the command as a deployment job.
 
+### Building behind a TLS-inspecting proxy
+
+`EXTRA_CA_BUNDLE` points the build at a corporate root certificate, passed as a
+BuildKit secret so it is never a layer in the image. Without it, restore inside
+`docker build` fails with `UntrustedRoot` — which NuGet surfaces as `NU1301`,
+wording that sends you looking at the feed rather than at the proxy. This was a
+real failure here, not a hypothetical: the sandbox this was developed in
+intercepts TLS, and the option exists because of it.
+
+Unset, the secret mounts as an empty file and the build skips it, so an ordinary
+network pays nothing. Verified in all three states — a real certificate,
+`/dev/null`, and no secret passed at all.
+
 ### Order of a release
 
 1. Back up the database (and confirm the backup, not just the job's exit code).
@@ -168,15 +181,12 @@ serialisation disappears.
 1. **CI has never run.** The workflow is written against GitHub's hosted runners
    and its YAML is validated, but this environment cannot execute GitHub Actions.
    Every step it runs has been executed by hand here; the orchestration has not.
-2. **The image build is unverified since Phase 3 increment 3.** This sandbox's
-   proxy intercepts TLS, and the build container does not carry its CA, so
-   *neither* npm nor NuGet can be reached from inside `docker build` —
-   `dotnet restore` now fails with NU1301 the same way npm did. The UI stage has
-   the `--build-arg UI_SOURCE=prebuilt` escape hatch, which copies a bundle built
-   on the host; restore has no equivalent, so the increment was verified by
-   running the host from source (`./run-host.sh`, which mounts the CA) against
-   the Compose database. Both paths need one CI run on a network without an
-   intercepting proxy to confirm. Nothing about this is a defect in the image.
+2. **The image's default UI stage is still unverified.** `docker build` defaults
+   to building the OpenUI5 bundle with npm, and the verified path here was
+   `--build-arg UI_SOURCE=prebuilt`, which copies a bundle built on the host —
+   the same path an air-gapped customer would use. The npm path needs one CI run
+   to confirm. Everything else about the image *is* verified: it builds, and all
+   144 checks pass against the running container rather than a source run.
 3. **No performance testing at volume.** Everything measured so far is at seed
    scale. The journal's indexes and partitioning are designed for hundreds of
    millions of rows, and that claim is untested.

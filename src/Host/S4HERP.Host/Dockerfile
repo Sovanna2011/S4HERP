@@ -20,7 +20,17 @@ WORKDIR /ui
 COPY ui5/package.json ui5/package-lock.json* ./
 # No `2>/dev/null` on a fallback: swallowing the first command's output hides
 # why it failed, and "npm ci or else npm install" then reports nothing useful.
-RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; \
+#
+# The CA mount is what makes this work behind a TLS-inspecting proxy — see the
+# note above the build stage. Absent, the secret mounts as an empty file and the
+# guard skips it, so the ordinary case costs nothing.
+RUN --mount=type=secret,id=extra_ca,target=/tmp/extra-ca.crt \
+    if [ -s /tmp/extra-ca.crt ]; then \
+      cp /tmp/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt && \
+      update-ca-certificates && \
+      npm config set cafile /etc/ssl/certs/ca-certificates.crt; \
+    fi; \
+    if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; \
     else npm install --no-audit --no-fund; fi
 COPY ui5/ ./
 RUN npx ui5 build --all --clean-dest --dest /ui/dist
@@ -39,7 +49,23 @@ WORKDIR /src
 # Restore first so the layer is cached until the project file changes.
 COPY ["Directory.Build.props", "Directory.Packages.props", "./"]
 COPY ["src/", "src/"]
-RUN dotnet restore "src/Host/S4HERP.Host/S4HERP.Host.csproj" -a "${TARGETARCH:-x64}"
+
+# Corporate networks routinely terminate and re-sign TLS, and every package
+# restore then fails with "the remote certificate is invalid ... UntrustedRoot"
+# (NuGet reports it as NU1301, which reads like the feed is down). Pass the
+# proxy's root certificate and the build trusts it:
+#
+#   docker build --secret id=extra_ca,src=/path/to/corporate-root.crt ...
+#   EXTRA_CA_BUNDLE=/path/to/corporate-root.crt docker compose build
+#
+# A secret rather than a COPY, so the certificate is never a layer in the image,
+# and optional: unset, it mounts as an empty file and the guard skips it.
+RUN --mount=type=secret,id=extra_ca,target=/tmp/extra-ca.crt \
+    if [ -s /tmp/extra-ca.crt ]; then \
+      cp /tmp/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt && \
+      update-ca-certificates; \
+    fi; \
+    dotnet restore "src/Host/S4HERP.Host/S4HERP.Host.csproj" -a "${TARGETARCH:-x64}"
 
 COPY . .
 RUN dotnet publish "src/Host/S4HERP.Host/S4HERP.Host.csproj" \

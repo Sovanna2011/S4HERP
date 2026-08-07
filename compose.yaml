@@ -29,6 +29,11 @@ services:
     build:
       context: .
       dockerfile: src/Host/S4HERP.Host/Dockerfile
+      secrets:
+        # The root certificate of a TLS-inspecting proxy, if the build sits behind
+        # one. Unset it defaults to an empty file and the Dockerfile skips it, so
+        # this costs nothing on an ordinary network.
+        - extra_ca
     image: s4herp-api:latest
     container_name: s4herp-api
     depends_on:
@@ -45,3 +50,9 @@ services:
 
 volumes:
   mssql-data:
+
+secrets:
+  extra_ca:
+    # /dev/null reads as an empty file, which is exactly "no extra certificate".
+    # Set EXTRA_CA_BUNDLE in .env to point at a real one.
+    file: ${EXTRA_CA_BUNDLE:-/dev/null}

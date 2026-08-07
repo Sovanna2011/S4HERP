@@ -242,12 +242,15 @@ one the application builds proves nothing about the application.
 ### How it was verified here
 
 `docker build` could not restore NuGet packages in this environment — the
-sandbox proxy intercepts TLS and the build container does not carry its CA, so
-`dotnet restore` fails with NU1301 exactly as npm already did for the UI stage.
-The suites were therefore run against the host started from source with
-`./run-host.sh`, which mounts the CA, talking to the Compose database. That
-exercises the same code; it does not exercise the image. See
-[Phase 5 limitation 2](../phase5/README.md#limitations).
+sandbox proxy intercepts TLS and the build container did not carry its CA, so
+`dotnet restore` failed with NU1301 exactly as npm already did for the UI stage.
+This increment's suites were therefore run against the host started from source
+with `./run-host.sh`, talking to the Compose database. That exercises the same
+code; it does not exercise the image.
+
+[Increment 4](increment-4-lifecycle.md#the-image-build-behind-a-tls-inspecting-proxy)
+fixed the underlying problem — the Dockerfile now accepts the proxy's root
+certificate as a BuildKit secret — so later runs are against the image.
 
 ## Seeded users
 
