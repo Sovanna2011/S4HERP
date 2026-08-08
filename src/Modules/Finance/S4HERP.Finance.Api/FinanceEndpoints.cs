@@ -208,6 +208,68 @@ public static class FinanceEndpoints
             .WithName("GetMyJournalApprovals")
             .WithSummary("Documents waiting on the calling user.");
 
+        // What the bank said back. A separate group from payment-runs because the
+        // return leg is not part of making a payment — it is what happens to one
+        // afterwards, and it can arrive days later.
+        var status = routes
+            .MapGroup("/api/v1/finance/payment-status-reports")
+            .WithTags("Bank status");
+
+        status.MapPost("/", async (
+                HttpRequest request, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                // Read as text rather than bound as JSON: the payload is the
+                // bank's XML, byte for byte, and it is stored as evidence.
+                using var reader = new StreamReader(request.Body);
+                var content = await reader.ReadToEndAsync(ct);
+
+                var result = await dispatcher.SendAsync(
+                    new ImportPaymentStatusCommand { Content = content }, ct);
+
+                // 200 on a re-import, 201 on a new one: importing the same file
+                // twice is a normal thing to do and not a creation.
+                return result.AlreadyImported
+                    ? Results.Ok(result)
+                    : Results.Created(
+                        $"/api/v1/finance/payment-status-reports/{result.MessageId}", result);
+            })
+            .Accepts<string>("application/xml", "text/xml")
+            .WithName("ImportPaymentStatusReport")
+            .WithSummary("Import an ISO 20022 pain.002 payment status report.");
+
+        status.MapGet("/{messageId}", async (
+                string messageId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new GetPaymentStatusReportQuery { MessageId = messageId }, ct)))
+            .WithName("GetPaymentStatusReport")
+            .WithSummary("An imported status report and the bank's verdict per payment.");
+
+        status.MapGet("/rejections", async (
+                string? companyCode, bool? includeResolved,
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new GetOutstandingRejectionsQuery
+                    {
+                        CompanyCode = companyCode,
+                        IncludeResolved = includeResolved ?? false,
+                    }, ct)))
+            .WithName("GetOutstandingRejections")
+            .WithSummary("Payments the bank refused that the ledger still shows as paid.");
+
+        status.MapPost("/rejections/{endToEndId}/resolve", async (
+                string endToEndId,
+                ResolveRejectionBody? body,
+                IDispatcher dispatcher,
+                CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new ResolveRejectedPaymentCommand
+                    {
+                        EndToEndId = endToEndId,
+                        Comment = body?.Comment,
+                    }, ct)))
+            .WithName("ResolveRejectedPayment")
+            .WithSummary("Reverse a refused payment and reopen the invoices it cleared.");
+
         var payments = routes.MapGroup("/api/v1/finance/payments").WithTags("Payments");
 
         payments.MapPost("/", async (
@@ -323,6 +385,13 @@ public static class FinanceEndpoints
             })
             .WithName("GeneratePaymentFile")
             .WithSummary("Generate the ISO 20022 pain.001 instruction for an executed run.");
+
+        runs.MapGet("/{runId}/bank-status", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new GetRunBankStatusQuery { RunId = runId }, ct)))
+            .WithName("GetRunBankStatus")
+            .WithSummary("What the bank has said about this run's payments, latest word first.");
 
         runs.MapGet("/{runId}/payment-file", async (
                 string runId, IDispatcher dispatcher, CancellationToken ct) =>

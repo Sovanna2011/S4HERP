@@ -409,6 +409,7 @@ await dialog.locator('input').nth(6).fill('1000000002');   // one partner, to ke
 await page.locator(ID('paymentRuns', 'createRunConfirm')).click();
 
 await page.waitForURL(/#\/payment-runs\/1000-/, { timeout: 30000 });
+const uiRunId = decodeURIComponent(page.url().split('/payment-runs/')[1]);
 await page.waitForSelector(ID('paymentRun', 'paymentRunPayments'), { timeout: 30000 });
 check('Proposing opens the proposal itself, not a list',
   await textAppears(ID('paymentRun', 'paymentRunPayments'), '1000000002'));
@@ -495,6 +496,72 @@ await page.waitForSelector(ID('paymentRun', 'paymentRunDownloadFileButton'), { t
 await page.locator(ID('paymentRun', 'paymentRunDownloadFileButton')).click();
 check('Treasury may, and the copy is counted',
   await textAppears(ID('paymentRun', 'paymentRunFileCopies'), '1'));
+
+console.log('\n== The bank answers back ==');
+
+// The run above was executed and its file generated. A pain.002 refusing that
+// payment is what closes the loop: until this increment the ledger said paid and
+// nothing could contradict it.
+const fileMeta = await (await fetch(
+  `${BASE}/api/v1/finance/payment-runs/${uiRunId}/payment-file`,
+  { headers: { 'X-S4HERP-User': 'seed.accountant' } })).json();
+
+const uiPaymentDoc = await (await fetch(
+  `${BASE}/api/v1/finance/payment-runs/${uiRunId}`,
+  { headers: { 'X-S4HERP-User': 'seed.accountant' } })).json();
+const uiE2E = `1000-2026-${uiPaymentDoc.payments[0].paymentDocumentNumber}`;
+
+const rejection = await fetch(`${BASE}/api/v1/finance/payment-status-reports`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/xml', 'X-S4HERP-User': 'seed.accountant' },
+  body: `<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.10">
+  <CstmrPmtStsRpt>
+    <GrpHdr><MsgId>UI-STS-${Date.now()}</MsgId><CreDtTm>2026-05-12T08:00:00Z</CreDtTm></GrpHdr>
+    <OrgnlGrpInfAndSts><OrgnlMsgId>${fileMeta.messageId}</OrgnlMsgId></OrgnlGrpInfAndSts>
+    <OrgnlPmtInfAndSts>
+      <TxInfAndSts>
+        <OrgnlEndToEndId>${uiE2E}</OrgnlEndToEndId>
+        <TxSts>RJCT</TxSts>
+        <StsRsnInf><Rsn><Cd>AC04</Cd></Rsn><AddtlInf>Creditor account closed</AddtlInf></StsRsnInf>
+      </TxInfAndSts>
+    </OrgnlPmtInfAndSts>
+  </CstmrPmtStsRpt>
+</Document>`
+});
+check('A pain.002 refusing the payment imports', rejection.status === 201,
+  String(rejection.status));
+
+await setUser('seed.accountant');
+await open(`#/payment-runs/${uiRunId}`);
+await page.waitForSelector(ID('paymentRun', 'paymentRunBankStatus'), { timeout: 30000 });
+check('The run shows what the bank said',
+  await textAppears(ID('paymentRun', 'paymentRunBankStatus'), 'Rejected'));
+check('...in the bank\'s own words',
+  await textAppears(ID('paymentRun', 'paymentRunBankStatus'), 'Creditor account closed'));
+check('...and warns that the ledger still disagrees',
+  await becomesVisible(ID('paymentRun', 'paymentRunRejectionStrip')));
+
+// Reversing is the second irreversible action on this screen, and the reason is
+// mandatory — the dialog will not send an empty one.
+await page.locator(ID('paymentRun', 'paymentRunBankStatus') + ' button').first().click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Bank confirmed the account is closed.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+
+check('Reversing it from the screen clears the warning',
+  await textDisappears(ID('paymentRun', 'paymentRunBankStatusPanel'), 'Reverse the payment'));
+
+const openItems = await (await fetch(
+  `${BASE}/api/v1/finance/open-items?companyCode=1000&businessPartner=1000000002`,
+  { headers: { 'X-S4HERP-User': 'seed.accountant' } })).json();
+// The open-item view carries amounts, not the invoice reference, so the proof
+// is the 2,500 coming back as open rather than the reference string. Matched on
+// the row rather than a formatted literal: JSON trims trailing zeros, and
+// "2500.0000" is not what decimal(19,4) serialises to.
+check('...and the invoice is open again, so the ledger agrees with the bank',
+  openItems.rows.some((r) => Number(r.openAmount) === 2500 && r.clearingStatus === 'Open'),
+  JSON.stringify(openItems.rows.map((r) => r.openAmount)));
 
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });

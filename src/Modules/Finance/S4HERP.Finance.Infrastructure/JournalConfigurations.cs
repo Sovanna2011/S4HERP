@@ -288,3 +288,47 @@ public class PaymentFileConfiguration : IEntityTypeConfiguration<PaymentFile>
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+public class PaymentStatusReportConfiguration : IEntityTypeConfiguration<PaymentStatusReport>
+{
+    public void Configure(EntityTypeBuilder<PaymentStatusReport> b)
+    {
+        b.ToTable("PaymentStatusReport", Schemas.Fin);
+
+        // The bank's own message id, unique per tenant. This is what makes a
+        // re-import a no-op rather than a second set of verdicts: files get sent
+        // twice by mail servers, retried by operators, and picked up twice by
+        // whatever eventually polls the bank.
+        b.HasIndex(x => new { x.TenantId, x.MessageId }).IsUnique();
+        b.HasIndex(x => new { x.TenantId, x.PaymentFileId });
+
+        // Same opt-out as the outgoing file, for the same reason.
+        b.Property(x => x.Content).HasColumnType("nvarchar(max)");
+
+        b.HasOne(x => x.PaymentFile).WithMany().HasForeignKey(x => x.PaymentFileId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class PaymentStatusItemConfiguration : IEntityTypeConfiguration<PaymentStatusItem>
+{
+    public void Configure(EntityTypeBuilder<PaymentStatusItem> b)
+    {
+        b.ToTable("PaymentStatusItem", Schemas.Fin);
+
+        b.HasIndex(x => new { x.TenantId, x.PaymentStatusReportId });
+
+        // The question "what has the bank refused that we still show as paid" is
+        // asked by a person every morning, and by this system's own query. Both
+        // want the rejected-and-unresolved rows and nothing else.
+        b.HasIndex(x => new { x.TenantId, x.Status, x.IsResolved })
+            .HasDatabaseName("IX_PaymentStatusItem_Outstanding");
+
+        b.HasOne(x => x.PaymentStatusReport).WithMany(r => r.Items)
+            .HasForeignKey(x => x.PaymentStatusReportId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        b.HasOne(x => x.CompanyCode).WithMany().HasForeignKey(x => x.CompanyCodeId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}

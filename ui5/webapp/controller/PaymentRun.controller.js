@@ -25,6 +25,9 @@ sap.ui.define([
             // separate permission: metadata may 404 for a run that has none, and
             // that is a normal answer rather than an error.
             this.getView().setModel(new JSONModel({}), "file");
+            // What the bank said back. Its own model because it arrives days
+            // after everything else on this page and is empty until it does.
+            this.getView().setModel(new JSONModel({ items: [] }), "status");
             this.getRouter().getRoute("paymentRun")
                 .attachPatternMatched(this._onRouteMatched, this);
         },
@@ -51,6 +54,8 @@ sap.ui.define([
                 // guaranteed 404 on every proposal a user opens.
                 view.getModel("file").setData(
                     run.status === "Executed" ? await this._loadFile() : {});
+                view.getModel("status").setData(
+                    run.status === "Executed" ? await this._loadStatus() : { items: [] });
             } catch (error) {
                 MessageBox.error(error.message, { title: this.text("requestFailed") });
             } finally {
@@ -70,8 +75,47 @@ sap.ui.define([
             }
         },
 
+        async _loadStatus() {
+            try {
+                return await this.api().request(
+                    this._path("/bank-status"), { context: this.contextData() });
+            } catch {
+                // A run nobody has imported a status report for is the normal
+                // case for days after execution, not an error.
+                return { items: [] };
+            }
+        },
+
         onRefresh() {
             this._load();
+        },
+
+        onResolveRejection(event) {
+            const item = event.getSource().getBindingContext("status").getObject();
+
+            // Reversing a posted payment is the second irreversible action on
+            // this screen, and unlike Execute it undoes money that the ledger
+            // currently says has moved. It gets the same treatment: say what it
+            // will do, and make the reason mandatory.
+            this._promptComment("paymentRunResolveRejection", "paymentRunResolveReason", true,
+                async (comment) => {
+                    const view = this.getView();
+                    view.setBusy(true);
+                    try {
+                        const result = await this.api().request(
+                            "/api/v1/finance/payment-status-reports/rejections/"
+                            + encodeURIComponent(item.endToEndId) + "/resolve",
+                            { method: "POST", body: { comment }, context: this.contextData() });
+
+                        MessageToast.show(this.text("paymentRunRejectionResolved",
+                            [result.reversalDocumentNumber, result.itemsReopened]));
+                        await this._load();
+                    } catch (error) {
+                        MessageBox.error(error.message, { title: this.text("requestFailed") });
+                    } finally {
+                        view.setBusy(false);
+                    }
+                });
         },
 
         onSubmit() {

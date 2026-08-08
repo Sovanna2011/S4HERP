@@ -204,6 +204,21 @@ public static class ModuleRegistration
             IQueryHandler<ListPaymentRunsQuery, IReadOnlyList<PaymentRunSummary>>,
             ListPaymentRunsQueryHandler>();
         services.AddScoped<
+            ICommandHandler<ImportPaymentStatusCommand, PaymentStatusReportResult>,
+            ImportPaymentStatusHandler>();
+        services.AddScoped<
+            ICommandHandler<ResolveRejectedPaymentCommand, ResolveRejectedPaymentResult>,
+            ResolveRejectedPaymentHandler>();
+        services.AddScoped<
+            IQueryHandler<GetPaymentStatusReportQuery, PaymentStatusReportResult>,
+            GetPaymentStatusReportQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<GetOutstandingRejectionsQuery, IReadOnlyList<RejectedPaymentView>>,
+            GetOutstandingRejectionsQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<GetRunBankStatusQuery, RunBankStatusResult>,
+            GetRunBankStatusQueryHandler>();
+        services.AddScoped<
             ICommandHandler<GeneratePaymentFileCommand, PaymentFileResult>,
             GeneratePaymentFileHandler>();
         services.AddScoped<

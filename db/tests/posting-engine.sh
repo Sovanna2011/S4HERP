@@ -939,6 +939,10 @@ assert_body "...to Approved, not paid" '"status":"Approved".*"approvalOutcome":"
 check "An approved run executes" 200 - \
   -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/execute" -H "$ACCOUNTANT"
 assert_body "...posting the payments" '"status":"Executed".*"paymentsPosted":1'
+# The payment document this run posted. The bank's status report refers to it by
+# end-to-end id, which is company code, year and this number.
+APPRUNDOC=$(printf '%s' "$LAST_BODY" \
+  | grep -oE '"paymentDocumentNumbers":\[[0-9]+' | grep -oE '[0-9]+$')
 
 echo "== Payment run rejection =="
 
@@ -994,6 +998,9 @@ assert_body "...one credit transfer, pain.001.001.09" \
   '"format":"pain.001.001.09".*"transactionCount":1'
 assert_body "...totalling what the run paid" '"controlSum":12000'
 FILEHASH=$(json_field contentSha256)
+# Kept for the bank status block far below: a pain.002 has to name the message
+# it answers, and the end-to-end id is how a verdict finds its payment.
+PAINMSGID=$(json_field messageId)
 if [ ${#FILEHASH} -eq 64 ]; then
   echo "  PASS  ...with a sha256 the treasurer can quote to the bank"; pass=$((pass+1))
 else
@@ -1456,6 +1463,172 @@ check "A run carries its approval trail" 200 - \
 assert_body "...with the step that released it" '"approverRoleCode":"FI_APPROVER"'
 assert_body "...and who decided" '"decidedBy":"seed.approver"'
 assert_body "...and says an approval was required at all" '"approvalRequired":true'
+
+echo
+echo "== What the bank said back (pain.002) =="
+
+XMLH='Content-Type: application/xml'
+E2E="1000-2026-$APPRUNDOC"
+
+# A rejection, in the shape a bank actually sends one. AC01 is the standard code
+# for an account number the bank does not recognise — which is exactly what a
+# redirected-payment fraud looks like after the fact, and the reason increment 9
+# put maker-checker on bank details.
+pain002() {
+  cat <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.10">
+  <CstmrPmtStsRpt>
+    <GrpHdr><MsgId>$1</MsgId><CreDtTm>2026-04-27T09:15:00Z</CreDtTm></GrpHdr>
+    <OrgnlGrpInfAndSts>
+      <OrgnlMsgId>$2</OrgnlMsgId><OrgnlMsgNmId>pain.001.001.09</OrgnlMsgNmId>
+    </OrgnlGrpInfAndSts>
+    <OrgnlPmtInfAndSts>
+      <OrgnlPmtInfId>$2</OrgnlPmtInfId>
+      <TxInfAndSts>
+        <OrgnlEndToEndId>$3</OrgnlEndToEndId>
+        <TxSts>$4</TxSts>
+        <StsRsnInf>
+          <Rsn><Cd>$5</Cd></Rsn>
+          <AddtlInf>$6</AddtlInf>
+        </StsRsnInf>
+        <OrgnlTxRef><Amt><InstdAmt Ccy="USD">12000.00</InstdAmt></Amt></OrgnlTxRef>
+      </TxInfAndSts>
+    </OrgnlPmtInfAndSts>
+  </CstmrPmtStsRpt>
+</Document>
+XML
+}
+
+check "A report for a message we never sent is refused" 422 PAYMENT_STATUS_UNKNOWN_ORIGINAL \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(pain002 'STS-BOGUS-1' 'NOT-A-MESSAGE-WE-SENT' "$E2E" RJCT AC01 'Unknown account')"
+
+check "Something that is not a status report is refused" 422 PAYMENT_STATUS_MALFORMED \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary '<?xml version="1.0"?><Document><NotAReport/></Document>'
+
+check "Malformed XML is refused before anything is stored" 422 PAYMENT_STATUS_MALFORMED \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary '<Document><unclosed>'
+
+check "The bank rejects a payment, and the system records it" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(pain002 'STS-0001' "$PAINMSGID" "$E2E" RJCT AC01 'Creditor account number invalid')"
+assert_body "...naming the run it answers" "\"runId\":\"$APPRUN\""
+assert_body "...one rejection" '"rejected":1'
+assert_body "...matched to the payment document, not left floating" '"unmatched":0'
+assert_body "...keeping the bank's own reason code" '"reasonCode":"AC01"'
+assert_body "...and the bank's own words" 'Creditor account number invalid'
+
+# Bank files get re-sent by mail servers and re-picked-up by pollers. A second
+# set of verdicts on the same payments would double the rejection count.
+check "Importing the same report again changes nothing" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(pain002 'STS-0001' "$PAINMSGID" "$E2E" RJCT AC01 'Creditor account number invalid')"
+assert_body "...and says so rather than pretending it imported" '"alreadyImported":true'
+assert_body "...still one rejection, not two" '"rejected":1'
+
+check "The rejection is outstanding, and findable" 200 - \
+  "$BASE/api/v1/finance/payment-status-reports/rejections" -H "$ACCOUNTANT"
+assert_body "...naming the payment the ledger still shows as paid" "\"endToEndId\":\"$E2E\""
+assert_body "...unresolved" '"isResolved":false'
+
+# The ledger still says paid. That is the whole problem this increment exists to
+# make visible, so it is asserted rather than assumed.
+check "...while the invoice is still cleared" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&businessPartner=1000000002" -H "$ACCOUNTANT"
+BEFOREOPEN=$(printf '%s' "$LAST_BODY" | grep -oE '"documentNumber":[0-9]+' | wc -l)
+
+check "Resolving it reverses the payment and reopens the invoice" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-status-reports/rejections/$E2E/resolve" \
+  -H "$ACCOUNTANT" -H "$JSON" -d '{"comment":"Bank refused: account closed. Awaiting new details."}'
+assert_body "...with a reversal document" '"reversalDocumentNumber":[0-9]'
+# At least one, not exactly one: how many items a payment cleared depends on
+# what was open when the run was proposed, and pinning the number is how the
+# last two increments' tests broke. The open-item count below is the real proof.
+assert_body "...and the items it had cleared reopened" '"itemsReopened":[1-9]'
+
+check "...so the open item is back" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&businessPartner=1000000002" -H "$ACCOUNTANT"
+AFTEROPEN=$(printf '%s' "$LAST_BODY" | grep -oE '"documentNumber":[0-9]+' | wc -l)
+if [ "$AFTEROPEN" -gt "$BEFOREOPEN" ]; then
+  echo "  PASS  ...the ledger agrees with the bank again ($BEFOREOPEN → $AFTEROPEN open)"
+  pass=$((pass+1))
+else
+  echo "  FAIL  open items did not increase: $BEFOREOPEN → $AFTEROPEN"
+  FAILURES+=("rejection did not reopen"); fail=$((fail+1))
+fi
+
+check "Resolving twice is refused" 422 PAYMENT_REJECTION_ALREADY_RESOLVED \
+  -X POST "$BASE/api/v1/finance/payment-status-reports/rejections/$E2E/resolve" \
+  -H "$ACCOUNTANT" -H "$JSON" -d '{}'
+
+check "...and it drops off the outstanding list" 200 - \
+  "$BASE/api/v1/finance/payment-status-reports/rejections" -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q "\"endToEndId\":\"$E2E\""; then
+  echo "  FAIL  a resolved rejection is still listed as outstanding"
+  FAILURES+=("resolved still outstanding"); fail=$((fail+1))
+else
+  echo "  PASS  ...but is still there when history is asked for"; pass=$((pass+1))
+fi
+check "...history includes it" 200 - \
+  "$BASE/api/v1/finance/payment-status-reports/rejections?includeResolved=true" -H "$ACCOUNTANT"
+assert_body "...resolved" '"isResolved":true'
+
+# An acceptance is not a rejection, and must not appear on the list of things to
+# act on. A status report that made everything look urgent would be ignored.
+check "An acceptance is recorded without raising an alarm" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(pain002 'STS-0002' "$PAINMSGID" "$E2E" ACSC '' 'Settled')"
+assert_body "...as accepted" '"accepted":1'
+assert_body "...with nothing rejected" '"rejected":0'
+check "...and only a rejection can be resolved" 422 PAYMENT_NOT_REJECTED \
+  -X POST "$BASE/api/v1/finance/payment-status-reports/rejections/$E2E/resolve" \
+  -H "$ACCOUNTANT" -H "$JSON" -d '{}'
+
+# A verdict naming a payment we cannot place is recorded, never guessed at.
+check "A verdict for a payment we cannot place is kept, not dropped" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(pain002 'STS-0003' "$PAINMSGID" '1000-2026-999999999' RJCT AC04 'Account closed')"
+assert_body "...counted as unmatched" '"unmatched":1'
+assert_body "...with no payment document invented for it" '"paymentDocumentNumber":null'
+check "...and reversing a guess is refused" 422 PAYMENT_STATUS_UNMATCHED \
+  -X POST "$BASE/api/v1/finance/payment-status-reports/rejections/1000-2026-999999999/resolve" \
+  -H "$ACCOUNTANT" -H "$JSON" -d '{}'
+
+check "An unknown status code is recorded rather than discarded" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-status-reports" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(pain002 'STS-0004' "$PAINMSGID" "$E2E" WEIRD XX99 'Something new')"
+assert_body "...as Unknown, keeping the payment it referred to" '"status":"Unknown"'
+
+# The run's own view of what the bank said. A bank may revise itself, so the
+# latest word per transaction is what a person needs — STS-0004 above reported
+# the same payment as an unrecognised code after STS-0002 said settled.
+check "The run carries the bank's latest word" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/bank-status" -H "$ACCOUNTANT"
+assert_body "...one line per transaction, not one per report" '"items":\[{'
+assert_body "...showing the most recent verdict" '"status":"Unknown"'
+# Five imported items across four reports — the run's own payment reported four
+# times, plus the one the bank named that we could not place — collapse to two
+# transactions with a current status each.
+E2ECOUNT=$(printf '%s' "$LAST_BODY" | grep -o '"endToEndId"' | wc -l)
+if [ "$E2ECOUNT" -eq 2 ]; then
+  echo "  PASS  ...four reports collapsed to the current status per transaction"
+  pass=$((pass+1))
+else
+  echo "  FAIL  expected 2 transactions with a current status, got $E2ECOUNT"
+  FAILURES+=("bank status not collapsed"); fail=$((fail+1))
+fi
+check "A run nobody has heard back about says so, rather than failing" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$RUNID/bank-status" -H "$ACCOUNTANT"
+assert_body "...with nothing from the bank" '"items":\[\]'
+
+check "The report is readable afterwards" 200 - \
+  "$BASE/api/v1/finance/payment-status-reports/STS-0001" -H "$ACCOUNTANT"
+assert_body "...with the bank's verdict intact" '"reasonCode":"AC01"'
+check "An unimported report is not found" 404 NOT_FOUND \
+  "$BASE/api/v1/finance/payment-status-reports/STS-NEVER" -H "$ACCOUNTANT"
 
 check "Trial balance still foots after bank maintenance" 200 - \
   "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"

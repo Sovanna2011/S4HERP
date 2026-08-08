@@ -80,6 +80,22 @@ sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
             }
         },
 
+        /**
+         * The bank's verdict. Rejected is an error rather than a warning because
+         * it means the ledger and the bank disagree about whether money moved,
+         * and Pending is a warning rather than neutral because an instruction the
+         * bank has not decided on is not finished business.
+         */
+        bankStatusState(status) {
+            switch (status) {
+                case "Settled": return "Success";
+                case "Accepted": return "Success";
+                case "Pending": return "Warning";
+                case "Rejected": return "Error";
+                default: return "None";
+            }
+        },
+
         stepDecisionState(decision) {
             switch (decision) {
                 case "Approved": return "Success";

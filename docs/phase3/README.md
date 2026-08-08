@@ -22,6 +22,7 @@ record of what increment 1 delivered rather than edited to match today:
 | 9 — partner bank maintenance under maker-checker | [increment-9-partner-bank-maintenance.md](increment-9-partner-bank-maintenance.md) |
 | 10 — the cross-module approvals inbox | [increment-10-approvals-inbox.md](increment-10-approvals-inbox.md) |
 | 11 — the payment run screen | [increment-11-payment-run-screen.md](increment-11-payment-run-screen.md) |
+| 12 — pain.002, what the bank said back | [increment-12-bank-status.md](increment-12-bank-status.md) |
 
 ## What was built
 

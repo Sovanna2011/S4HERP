@@ -101,6 +101,52 @@
                 </content>
             </Panel>
 
+            <!-- What the bank said. Above the approval history on purpose: an
+                 approval that happened last week matters less than a rejection
+                 that arrived this morning and is still unresolved. -->
+            <Panel id="paymentRunBankStatusPanel"
+                   class="sapUiSmallMarginTop"
+                   headerText="{i18n>paymentRunBankStatus}"
+                   expandable="false"
+                   visible="{= ${status>/items}.length > 0 }">
+                <content>
+                    <MessageStrip id="paymentRunRejectionStrip"
+                                  class="sapUiSmallMargin"
+                                  type="Error"
+                                  showIcon="true"
+                                  text="{i18n>paymentRunRejectedWarning}"
+                                  visible="{= ${status>/rejected} > 0 }"/>
+                    <Table id="paymentRunBankStatus" items="{status>/items}">
+                        <columns>
+                            <Column><Text text="{i18n>paymentRunReference}"/></Column>
+                            <Column><Text text="{i18n>status}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true">
+                                <Text text="{i18n>paymentRunBankReason}"/>
+                            </Column>
+                            <Column hAlign="End"><Text text="{i18n>action}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <ObjectIdentifier title="{status>endToEndId}"
+                                                      text="{status>paymentDocumentNumber}"/>
+                                    <ObjectStatus text="{status>status}"
+                                                  state="{path: 'status>status', formatter: '.formatter.bankStatusState'}"/>
+                                    <Text text="{status>reasonCode} {status>reasonText}"/>
+                                    <!-- The only action, and only where it applies:
+                                         a rejection nobody has acted on yet. -->
+                                    <Button text="{i18n>paymentRunResolveRejection}"
+                                            type="Reject"
+                                            visible="{= ${status>status} === 'Rejected'
+                                                      &amp;&amp; !${status>isResolved} }"
+                                            press=".onResolveRejection"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+
             <Panel id="paymentRunWorkflow"
                    class="sapUiSmallMarginTop"
                    headerText="{i18n>approvalHistory}"

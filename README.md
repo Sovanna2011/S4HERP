@@ -16,13 +16,14 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 9](docs/phase3/increment-9-partner-bank-maintenance.md) | Delivered. Partner bank maintenance under maker-checker; the approval engine generalised beyond financial documents |
 | 3 — [Increment 10](docs/phase3/increment-10-approvals-inbox.md) | Delivered. One approvals inbox across all object types, and the bank change approval screen |
 | 3 — [Increment 11](docs/phase3/increment-11-payment-run-screen.md) | Delivered. The payment run on a screen: propose, submit, approve, execute, generate and download the bank file |
+| 3 — [Increment 12](docs/phase3/increment-12-bank-status.md) | Delivered. ISO 20022 pain.002 import: a payment gains a status from the bank, and a refusal can be reversed |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**412 automated checks passing** across four suites, against the container image.
-Modules still to build — bank status reports (pain.002 / camt.053), dunning,
-Asset Accounting, Controlling allocations, SE11 and SE16N — are designed in the
-blueprint and listed in each phase report.
+**452 automated checks passing** across four suites, against the container image.
+Modules still to build — bank statement import (camt.053) and reconciliation,
+dunning, Asset Accounting, Controlling allocations, SE11 and SE16N — are designed
+in the blueprint and listed in each phase report.
 
 ASP.NET Core 10 over SQL Server 2025, containerised with Docker Compose.
 
@@ -53,8 +54,8 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 336 posting-engine checks over HTTP
-node ui5/test/ui-acceptance.mjs                  # 57 browser checks
+./db/tests/posting-engine.sh                     # 381 posting-engine checks over HTTP
+node ui5/test/ui-acceptance.mjs                  # 63 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
 
@@ -164,6 +165,11 @@ Compose composes from the variables above. Set
 | `POST` | `/api/v1/finance/payment-runs/{runId}/payment-file` | Generate the ISO 20022 pain.001 instruction |
 | `GET` | `/api/v1/finance/payment-runs/{runId}/payment-file` | File metadata: counts, control sum, hash, copies taken |
 | `GET` | `/api/v1/finance/payment-runs/{runId}/payment-file/content` | The XML itself. Requires `S_EXPORT`, and every read is audited |
+| `GET` | `/api/v1/finance/payment-runs/{runId}/bank-status` | What the bank said about this run, latest word per transaction |
+| `POST` | `/api/v1/finance/payment-status-reports` | Import an ISO 20022 pain.002 payment status report |
+| `GET` | `/api/v1/finance/payment-status-reports/{messageId}` | An imported report, with the bank's verdict per payment |
+| `GET` | `/api/v1/finance/payment-status-reports/rejections` | Payments the bank refused that the ledger still shows as paid |
+| `POST` | `/api/v1/finance/payment-status-reports/rejections/{id}/resolve` | Reverse a refused payment and reopen its invoices |
 | `GET` | `/api/v1/business-partners/{bp}/bank-details` | A partner's bank details. All of them are approved |
 | `POST` | `/api/v1/business-partners/{bp}/bank-details/changes` | Raise a bank detail change for approval (FK02). Applies nothing |
 | `GET` | `/api/v1/business-partners/bank-details/changes/{id}` | A change request: what it proposes, what it replaces, who must sign it |

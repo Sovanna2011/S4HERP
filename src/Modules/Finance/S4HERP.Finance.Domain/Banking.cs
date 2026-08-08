@@ -168,3 +168,113 @@ public class PaymentFile : AuditableEntity
     public DateTime? LastDownloadedAtUtc { get; set; }
     [MaxLength(64)] public string? LastDownloadedBy { get; set; }
 }
+
+/// <summary>
+/// What the bank said about one instruction, from an ISO 20022 pain.002 payment
+/// status report.
+///
+/// The vocabulary is the standard's (<c>TxSts</c>), not ours, because
+/// translating it would lose the distinction the bank was making. <c>ACCP</c>
+/// and <c>ACSC</c> both mean the transfer is going ahead, but only the second
+/// says the money has actually settled, and a treasurer chasing a payment needs
+/// to know which one they were told.
+/// </summary>
+public enum BankTransactionStatus
+{
+    /// <summary>ACTC/ACCP — technically valid and accepted. Not yet settled.</summary>
+    Accepted = 1,
+
+    /// <summary>ACSC — settled. The money has left.</summary>
+    Settled = 2,
+
+    /// <summary>PDNG — the bank is still deciding, typically awaiting funds or a check.</summary>
+    Pending = 3,
+
+    /// <summary>RJCT — refused. The money did not move, and the ledger still says it did.</summary>
+    Rejected = 4,
+
+    /// <summary>
+    /// A status code the parser does not recognise. Recorded rather than
+    /// rejected: an unknown code from a real bank is information, and discarding
+    /// the row because of it would lose the payment it referred to.
+    /// </summary>
+    Unknown = 9,
+}
+
+/// <summary>
+/// One imported pain.002. Stored whole for the same reason the outgoing file is:
+/// when a payment is disputed, what the bank actually sent is the evidence, and
+/// a summary reconstructed from parsed rows is not it.
+/// </summary>
+public class PaymentStatusReport : AuditableEntity
+{
+    /// <summary>The report's own <c>GrpHdr/MsgId</c>. Unique: re-importing is a no-op, not a duplicate.</summary>
+    [MaxLength(35)] public required string MessageId { get; set; }
+
+    /// <summary>
+    /// <c>OrgnlGrpInfAndSts/OrgnlMsgId</c> — the pain.001 this answers. A report
+    /// naming a message we never sent is refused, because the alternative is
+    /// silently filing somebody else's bank traffic against our payments.
+    /// </summary>
+    [MaxLength(35)] public required string OriginalMessageId { get; set; }
+
+    public long PaymentFileId { get; set; }
+    public PaymentFile PaymentFile { get; set; } = null!;
+
+    [MaxLength(30)] public required string Format { get; set; }
+
+    /// <summary>Group-level status, where the bank gave one. Individual items may still differ.</summary>
+    public BankTransactionStatus? GroupStatus { get; set; }
+
+    public required string Content { get; set; }
+    [MaxLength(64)] public required string ContentSha256 { get; set; }
+
+    public DateTime? ReportCreatedAtUtc { get; set; }
+    public DateTime ImportedAtUtc { get; set; }
+    [MaxLength(64)] public required string ImportedBy { get; set; }
+
+    public ICollection<PaymentStatusItem> Items { get; set; } = [];
+}
+
+/// <summary>
+/// The bank's verdict on one payment. Matched to the payment document through
+/// <c>OrgnlEndToEndId</c>, which is why the outgoing file sets that to something
+/// traceable rather than a random identifier (increment 8).
+/// </summary>
+public class PaymentStatusItem : AuditableEntity
+{
+    public long PaymentStatusReportId { get; set; }
+    public PaymentStatusReport PaymentStatusReport { get; set; } = null!;
+
+    [MaxLength(35)] public required string EndToEndId { get; set; }
+
+    public BankTransactionStatus Status { get; set; }
+
+    /// <summary>ISO 20022 <c>StsRsnInf/Rsn/Cd</c>, e.g. AC01 for an invalid account number.</summary>
+    [MaxLength(4)] public string? ReasonCode { get; set; }
+
+    /// <summary>The bank's own words. Kept verbatim; a paraphrase is not evidence.</summary>
+    [MaxLength(400)] public string? ReasonText { get; set; }
+
+    public decimal? Amount { get; set; }
+
+    /// <summary>
+    /// The payment document this refers to, when the end-to-end id resolved to
+    /// one. Null means the bank reported a transaction we cannot place — which is
+    /// recorded, and is exactly the sort of thing a person must look at.
+    /// </summary>
+    public long? PaymentDocumentNumber { get; set; }
+    public short? FiscalYear { get; set; }
+    public long? CompanyCodeId { get; set; }
+    public CompanyCode? CompanyCode { get; set; }
+
+    /// <summary>
+    /// Set when a rejection has been acted on — the payment reversed and its
+    /// invoices reopened. Until then the rejection is outstanding and the ledger
+    /// disagrees with the bank.
+    /// </summary>
+    public bool IsResolved { get; set; }
+    public DateTime? ResolvedAtUtc { get; set; }
+    [MaxLength(64)] public string? ResolvedBy { get; set; }
+    public long? ReversalDocumentNumber { get; set; }
+}
