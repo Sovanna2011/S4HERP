@@ -3,7 +3,23 @@ using S4HERP.BuildingBlocks.Application;
 using S4HERP.BuildingBlocks.Infrastructure;
 using S4HERP.Organization.Domain;
 
-namespace S4HERP.Finance.Application;
+// Lives in Organization, not Finance. cfg.NumberRange is Organization's
+// configuration table, and the allocator is a service over it — it was only in
+// Finance because accounting documents were the first thing to need a number.
+// Business partner bank change requests are the second, and a module may not
+// depend on Finance to get one.
+namespace S4HERP.Organization.Application;
+
+/// <summary>
+/// Error codes the allocator raises. Same string values Finance has always
+/// returned — they are part of the API contract, and moving a class between
+/// assemblies is not a reason to change what a client branches on.
+/// </summary>
+public static class NumberRangeErrors
+{
+    public const string UnknownObject = "UNKNOWN_OBJECT";
+    public const string NumberRangeExhausted = "NUMBER_RANGE_EXHAUSTED";
+}
 
 public interface INumberRangeAllocator
 {
@@ -65,13 +81,13 @@ public sealed class NumberRangeAllocator(S4herpDbContext db) : INumberRangeAlloc
         if (range is null)
         {
             throw new BusinessRuleException(
-                PostingErrors.UnknownObject,
+                NumberRangeErrors.UnknownObject,
                 $"No number range {rangeCode} is configured for object {objectType} " +
                 $"in fiscal year {fiscalYear}.");
         }
 
         throw new BusinessRuleException(
-            PostingErrors.NumberRangeExhausted,
+            NumberRangeErrors.NumberRangeExhausted,
             $"Number range {rangeCode} for fiscal year {fiscalYear} is exhausted " +
             $"at {range.CurrentNumber} of {range.ToNumber}.");
     }

@@ -51,7 +51,13 @@ public class ApprovalRule : AuditableEntity, IDeactivatable, IValidityDated
     /// becomes a step — so thresholds stack into multi-level approval.
     /// </summary>
     public decimal FromAmount { get; set; }
-    public long CurrencyId { get; set; }
+
+    /// <summary>
+    /// Currency the threshold is expressed in. Null means the rule has no amount
+    /// test at all and matches on object type alone — which is the only sensible
+    /// reading for an object that has no amount.
+    /// </summary>
+    public long? CurrencyId { get; set; }
 
     /// <summary>Role a user must hold to decide this step.</summary>
     [MaxLength(40)] public required string ApproverRoleCode { get; set; }
@@ -77,8 +83,15 @@ public class WorkflowInstance : AuditableEntity
     /// <summary>Business key of the object, e.g. KSS-1000-2026-SA-0100000001.</summary>
     [MaxLength(120)] public required string ObjectId { get; set; }
 
-    public long CompanyCodeId { get; set; }
-    public CompanyCode CompanyCode { get; set; } = null!;
+    /// <summary>
+    /// Null for an object that belongs to no company code. The engine was built
+    /// when every approvable thing was an accounting document, so this was not
+    /// nullable; a business partner's bank details are client-level master data
+    /// and have no company code to name. Approvers see a client-level item
+    /// whatever company codes they are assigned to.
+    /// </summary>
+    public long? CompanyCodeId { get; set; }
+    public CompanyCode? CompanyCode { get; set; }
 
     /// <summary>Who submitted it. Compared against each approver for maker-checker.</summary>
     [MaxLength(64)] public required string SubmittedBy { get; set; }
@@ -94,8 +107,14 @@ public class WorkflowInstance : AuditableEntity
     public WorkflowStatus Status { get; set; } = WorkflowStatus.Pending;
     public DateTime? CompletedAtUtc { get; set; }
 
-    public decimal Amount { get; set; }
-    public long CurrencyId { get; set; }
+    /// <summary>
+    /// What the object is worth, where that means anything. Null for an object
+    /// with no amount — a bank detail change is approved because of what it is,
+    /// not because of how much it is for, and storing a nominal zero would make
+    /// the inbox claim every such change was worth nothing.
+    /// </summary>
+    public decimal? Amount { get; set; }
+    public long? CurrencyId { get; set; }
 
     public ICollection<WorkflowStep> Steps { get; set; } = [];
 }

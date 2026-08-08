@@ -46,8 +46,8 @@ public interface IApprovalService
     /// the only place it should live.
     /// </summary>
     Task<bool> IsApprovalRequiredAsync(
-        string objectType, long companyCodeId, string? documentTypeCode,
-        decimal amount, long currencyId, CancellationToken cancellationToken = default);
+        string objectType, long? companyCodeId, string? documentTypeCode,
+        decimal? amount, long? currencyId, CancellationToken cancellationToken = default);
 
     /// <summary>The most recent workflow for an object, decided or not.</summary>
     Task<WorkflowStateView?> GetAsync(
@@ -89,14 +89,20 @@ public sealed record StartApprovalRequest
 {
     public required string ObjectType { get; init; }
     public required string ObjectId { get; init; }
-    public required long CompanyCodeId { get; init; }
+
+    /// <summary>Null for client-level master data, which belongs to no company code.</summary>
+    public long? CompanyCodeId { get; init; }
 
     /// <summary>Optional narrowing key, e.g. the accounting document type.</summary>
     public string? DocumentTypeCode { get; init; }
 
-    /// <summary>Value the thresholds are compared against, in <see cref="CurrencyId"/>.</summary>
-    public required decimal Amount { get; init; }
-    public required long CurrencyId { get; init; }
+    /// <summary>
+    /// Value the thresholds are compared against, in <see cref="CurrencyId"/>.
+    /// Null for an object that has no amount; only rules with no amount test of
+    /// their own can then match.
+    /// </summary>
+    public decimal? Amount { get; init; }
+    public long? CurrencyId { get; init; }
 
     /// <summary>
     /// Who made the object, which is not always who submits it. Both are barred
@@ -145,7 +151,7 @@ public sealed record WorkflowStateView
     public required string SubmittedBy { get; init; }
     public required DateTime SubmittedAtUtc { get; init; }
     public required string ObjectCreatedBy { get; init; }
-    public required decimal Amount { get; init; }
+    public decimal? Amount { get; init; }
     public DateTime? CompletedAtUtc { get; init; }
     public required IReadOnlyList<ApprovalStepView> Steps { get; init; }
 }
@@ -153,8 +159,8 @@ public sealed record WorkflowStateView
 public sealed record PendingApprovalView(
     string ObjectType,
     string ObjectId,
-    long CompanyCodeId,
-    decimal Amount,
+    long? CompanyCodeId,
+    decimal? Amount,
     string SubmittedBy,
     DateTime SubmittedAtUtc,
     int Sequence,

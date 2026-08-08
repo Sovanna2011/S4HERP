@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>S4HERP.BusinessPartner.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../S4HERP.BusinessPartner.Domain/S4HERP.BusinessPartner.Domain.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/S4HERP.BuildingBlocks.Application/S4HERP.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="../../Audit/S4HERP.Audit.Domain/S4HERP.Audit.Domain.csproj" />
+    <!-- The number range allocator, for the change request identifier. -->
+    <ProjectReference Include="../../Organization/S4HERP.Organization.Application/S4HERP.Organization.Application.csproj" />
+    <!-- Contracts only. Bank maintenance asks Workflow who must approve; it
+         never reads or writes a wf table (blueprint 02 §2.2). -->
+    <ProjectReference Include="../../Workflow/S4HERP.Workflow.Contracts/S4HERP.Workflow.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

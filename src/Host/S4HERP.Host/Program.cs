@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using S4HERP.BusinessPartner.Api;
 using S4HERP.Finance.Api;
 using S4HERP.Host;
 using S4HERP.Host.Infrastructure;
@@ -83,6 +84,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 });
 
 app.MapFinanceEndpoints();
+app.MapBusinessPartnerEndpoints();
 
 // The UI is served at /, so the service banner moves to its own route.
 app.MapGet("/api/v1/about", () => Results.Ok(new

@@ -19,6 +19,7 @@
     <ProjectReference Include="../../Modules/Organization/S4HERP.Organization.Infrastructure/S4HERP.Organization.Infrastructure.csproj" />
     <ProjectReference Include="../../Modules/Security/S4HERP.Security.Infrastructure/S4HERP.Security.Infrastructure.csproj" />
     <ProjectReference Include="../../Modules/BusinessPartner/S4HERP.BusinessPartner.Infrastructure/S4HERP.BusinessPartner.Infrastructure.csproj" />
+    <ProjectReference Include="../../Modules/BusinessPartner/S4HERP.BusinessPartner.Api/S4HERP.BusinessPartner.Api.csproj" />
     <ProjectReference Include="../../Modules/Finance/S4HERP.Finance.Infrastructure/S4HERP.Finance.Infrastructure.csproj" />
     <ProjectReference Include="../../Modules/Finance/S4HERP.Finance.Api/S4HERP.Finance.Api.csproj" />
     <ProjectReference Include="../../Modules/Security/S4HERP.Security.Application/S4HERP.Security.Application.csproj" />

@@ -225,8 +225,8 @@ public sealed class ApprovalService(
     }
 
     public async Task<bool> IsApprovalRequiredAsync(
-        string objectType, long companyCodeId, string? documentTypeCode,
-        decimal amount, long currencyId, CancellationToken cancellationToken = default)
+        string objectType, long? companyCodeId, string? documentTypeCode,
+        decimal? amount, long? currencyId, CancellationToken cancellationToken = default)
     {
         // Deliberately the same matcher the real start uses. Two implementations
         // of "does this need approving" would eventually disagree, and the way
@@ -290,7 +290,10 @@ public sealed class ApprovalService(
             .Include(w => w.Steps)
             .Where(w => w.Status == WorkflowStatus.Pending
                         && (objectType == null || w.ObjectType == objectType)
-                        && companyCodes.Contains(w.CompanyCodeId))
+                        // A client-level object has no company code to filter on,
+                        // so it is visible to every holder of the approver role.
+                        && (w.CompanyCodeId == null
+                            || companyCodes.Contains(w.CompanyCodeId.Value)))
             .OrderBy(w => w.SubmittedAtUtc)
             .ToListAsync(cancellationToken);
 
@@ -327,8 +330,11 @@ public sealed class ApprovalService(
         StartApprovalRequest request, CancellationToken cancellationToken)
     {
         var today = DateOnly.FromDateTime(clock.UtcNow);
-        var amount = Math.Abs(request.Amount);
+        var amount = request.Amount is { } a ? Math.Abs(a) : (decimal?)null;
 
+        // An amount-less object matches only rules that make no amount claim.
+        // The alternative — treating "no amount" as zero — would let every
+        // threshold rule in the system fire on a bank detail change.
         var matches = await db.Set<ApprovalRule>()
             .AsNoTracking()
             .Where(r => r.IsActive
@@ -337,8 +343,9 @@ public sealed class ApprovalService(
                         && (r.CompanyCodeId == null || r.CompanyCodeId == request.CompanyCodeId)
                         && (r.DocumentTypeCode == null
                             || r.DocumentTypeCode == request.DocumentTypeCode)
-                        && r.CurrencyId == request.CurrencyId
-                        && r.FromAmount <= amount)
+                        && (amount == null
+                            ? r.CurrencyId == null
+                            : r.CurrencyId == request.CurrencyId && r.FromAmount <= amount))
             .ToListAsync(cancellationToken);
 
         return matches

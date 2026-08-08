@@ -13,11 +13,12 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 6](docs/phase3/increment-6-payment-run.md) | Delivered. House banks, payment methods and the payment run (F110) |
 | 3 — [Increment 7](docs/phase3/increment-7-payment-run-approval.md) | Delivered. Approval on the payment run: release threshold, maker-checker, execution gate |
 | 3 — [Increment 8](docs/phase3/increment-8-payment-file.md) | Delivered. ISO 20022 pain.001 payment file, S_EXPORT on the download, bank details in the proposal |
+| 3 — [Increment 9](docs/phase3/increment-9-partner-bank-maintenance.md) | Delivered. Partner bank maintenance under maker-checker; the approval engine generalised beyond financial documents |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**273 automated checks passing** across four suites, against the container image.
-Modules still to build — partner bank maintenance, bank status reports, dunning,
+**343 automated checks passing** across four suites, against the container image.
+Modules still to build — a generic approvals inbox, bank status reports, dunning,
 Asset Accounting, Controlling allocations, SE11 and SE16N — are designed in the
 blueprint and listed in each phase report.
 
@@ -50,7 +51,7 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 227 posting-engine checks over HTTP
+./db/tests/posting-engine.sh                     # 297 posting-engine checks over HTTP
 node ui5/test/ui-acceptance.mjs                  # 27 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
@@ -159,6 +160,12 @@ Compose composes from the variables above. Set
 | `POST` | `/api/v1/finance/payment-runs/{runId}/payment-file` | Generate the ISO 20022 pain.001 instruction |
 | `GET` | `/api/v1/finance/payment-runs/{runId}/payment-file` | File metadata: counts, control sum, hash, copies taken |
 | `GET` | `/api/v1/finance/payment-runs/{runId}/payment-file/content` | The XML itself. Requires `S_EXPORT`, and every read is audited |
+| `GET` | `/api/v1/business-partners/{bp}/bank-details` | A partner's bank details. All of them are approved |
+| `POST` | `/api/v1/business-partners/{bp}/bank-details/changes` | Raise a bank detail change for approval (FK02). Applies nothing |
+| `GET` | `/api/v1/business-partners/bank-details/changes/{id}` | A change request: what it proposes, what it replaces, who must sign it |
+| `POST` | `/api/v1/business-partners/bank-details/changes/{id}/approve` | Approve; the last approval applies the change |
+| `POST` | `/api/v1/business-partners/bank-details/changes/{id}/reject` | Reject, with a mandatory reason |
+| `POST` | `/api/v1/business-partners/bank-details/changes/{id}/withdraw` | Pull a request back before anyone has decided it |
 | `GET` | `/api/v1/finance/reports/trial-balance` | Trial balance, derived from the journal |
 
 Every call is authorised server-side and denied by default. In Development the

@@ -52,6 +52,9 @@ SUPERVISOR='X-S4HERP-User: seed.supervisor'
 # Sees payment runs and holds S_EXPORT, so may take the bank file away. Holds
 # no F_BP_BANK: SOD001 rates that combination Critical.
 TREASURY='X-S4HERP-User: seed.treasury'
+BANKCLERK='X-S4HERP-User: seed.bankclerk'
+BANKCLERK2='X-S4HERP-User: seed.bankclerk2'
+BANKSUP='X-S4HERP-User: seed.banksupervisor'
 JSON='Content-Type: application/json'
 
 pass=0; fail=0
@@ -1125,6 +1128,221 @@ if [ -n "$DIFF9" ] && awk -v d="$DIFF9" 'BEGIN{exit !(d==0)}'; then
   echo "  PASS  ...difference $DIFF9"; pass=$((pass+1))
 else
   echo "  FAIL  difference ${DIFF9:-missing}"; FAILURES+=("post-file balance"); fail=$((fail+1))
+fi
+
+echo
+echo "== Partner bank maintenance under maker-checker =="
+
+BPBASE="$BASE/api/v1/business-partners"
+CHANGES="$BPBASE/bank-details/changes"
+
+# 1000000002 is the vendor the payment run pays; 1000000003 has no bank details
+# at all, which is why the transfer run excluded it two blocks above.
+check "A bank clerk may read a partner's bank details" 200 - \
+  "$BPBASE/1000000002/bank-details" -H "$BANKCLERK"
+assert_body "...and they are the ones the payment file used" '"accountNumber":"0001-00-123456-1"'
+assert_body "...with nothing pending against them" '"pendingChangeRequests":0'
+
+# Whether the account number can be read *without* F_BP_BANK. Treasury holds
+# S_EXPORT on the payment file and no bank authority at all, and SOD001 is the
+# reason the two are separate.
+check "Treasury may not read bank details, holding no F_BP_BANK" 403 NOT_AUTHORIZED \
+  "$BPBASE/1000000002/bank-details" -H "$TREASURY"
+check "Nor may the accountant who runs the payments" 403 NOT_AUTHORIZED \
+  "$BPBASE/1000000002/bank-details" -H "$ACCOUNTANT"
+
+# The central claim: a change is raised and the live record does not move.
+check "A clerk raises a change of account number" 202 - \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0001-00-123456-1","newAccountNumber":"0002-00-999888-7",
+       "reason":"Supplier notified a new account by letter dated 2026-04-20"}'
+BNK=$(json_field requestId)
+assert_body "...which is pending, not applied" '"status":"Pending"'
+assert_body "...naming what it would replace" '"previous":{'
+assert_body "...so the approver sees the account being left behind" '"accountNumber":"0001-00-123456-1"'
+
+check "...and the live details are untouched" 200 - \
+  "$BPBASE/1000000002/bank-details" -H "$BANKCLERK"
+assert_body "...still the old account number" '"accountNumber":"0001-00-123456-1"'
+assert_body "...with the pending change surfaced, not hidden" '"pendingChangeRequests":1'
+
+# Maker-checker, and the role separation behind it.
+# The clerk holds no W_APPROVE at all, so the authority check refuses before
+# maker-checker is even consulted. Both are real refusals and they are different
+# ones — the maker-checker case needs somebody who *could* otherwise approve,
+# which is what seed.banksupervisor exists for.
+check "The clerk who raised it holds no approval authority" 403 NOT_AUTHORIZED \
+  -X POST "$CHANGES/$BNK/approve" -H "$BANKCLERK" -H "$JSON" -d '{}'
+check "Nor does a second clerk holding the same role" 403 NOT_AUTHORIZED \
+  -X POST "$CHANGES/$BNK/approve" -H "$BANKCLERK2" -H "$JSON" -d '{}'
+check "Nor may treasury, who will carry the file to the bank" 403 NOT_AUTHORIZED \
+  -X POST "$CHANGES/$BNK/approve" -H "$TREASURY" -H "$JSON" -d '{}'
+
+# A payment run started now must still use the approved account, because the
+# proposed one has not been approved. This is the reason the staging table exists.
+check "A payment run proposed meanwhile still uses the approved account" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-27","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000002"}'
+PENDRUN=$(json_field runId)
+check "...and the details it will pay to are unchanged" 200 - \
+  "$BPBASE/1000000002/bank-details" -H "$BANKCLERK"
+assert_body "...the account the file would carry" '"accountNumber":"0001-00-123456-1"'
+
+check "The approver releases it" 200 - \
+  -X POST "$CHANGES/$BNK/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Confirmed by phone with the supplier finance team"}'
+assert_body "...and only now is it applied" '"status":"Applied"'
+
+check "The live record has moved" 200 - \
+  "$BPBASE/1000000002/bank-details" -H "$BANKCLERK"
+assert_body "...to the approved account number" '"accountNumber":"0002-00-999888-7"'
+assert_body "...and nothing is pending any more" '"pendingChangeRequests":0'
+# The request never mentioned the default flag. A field nobody typed must not move.
+assert_body "...keeping the default flag the request never mentioned" '"isDefault":true'
+assert_body "...and the SWIFT code it never mentioned" '"swift":"ACLBKHPP"'
+
+check "A decided request cannot be decided twice" 422 BANK_CHANGE_NOT_PENDING \
+  -X POST "$CHANGES/$BNK/approve" -H "$APPROVER" -H "$JSON" -d '{}'
+
+# Rejection, and the reason requirement the journal workflow already enforces.
+check "A second change is raised" 202 - \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newAccountHolder":"Not The Supplier Ltd",
+       "reason":"Account holder correction"}'
+BNK2=$(json_field requestId)
+check "...and rejecting it without a reason is refused" 422 REJECTION_COMMENT_REQUIRED \
+  -X POST "$CHANGES/$BNK2/reject" -H "$APPROVER" -H "$JSON" -d '{}'
+check "...rejected with one" 200 - \
+  -X POST "$CHANGES/$BNK2/reject" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"The holder name does not match the supplier on the invoice"}'
+assert_body "...and the request says so" '"status":"Rejected"'
+check "...leaving the account holder as it was" 200 - \
+  "$BPBASE/1000000002/bank-details" -H "$BANKCLERK"
+assert_body "...unchanged by a rejected request" '"accountHolder":"Mekong Logistics Ltd"'
+
+# Withdrawal, and one open request at a time.
+check "A third change is raised" 202 - \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newSwift":"ACLEKHPPXXX",
+       "reason":"Adding the SWIFT code for international transfers"}'
+BNK3=$(json_field requestId)
+check "...and a second one is refused while it is open" 422 BANK_CHANGE_ALREADY_PENDING \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newBankName":"ACLEDA Bank Plc",
+       "reason":"Bank name tidy-up"}'
+check "An approver may not withdraw someone else's request" 403 - \
+  -X POST "$CHANGES/$BNK3/withdraw" -H "$APPROVER" -H "$JSON" -d '{}'
+check "The requester may" 200 - \
+  -X POST "$CHANGES/$BNK3/withdraw" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"comment":"Wrong SWIFT code, will re-raise"}'
+assert_body "...and it is withdrawn" '"status":"Withdrawn"'
+
+# Validation that stops a bad file reaching the bank days later.
+check "A malformed SWIFT code is refused" 400 VALIDATION_FAILED \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newSwift":"NOPE",
+       "reason":"Typo test"}'
+check "A change that changes nothing is refused" 422 BANK_CHANGE_IS_A_NO_OP \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newBankName":"ACLEDA Bank Plc",
+       "reason":"No-op test"}'
+check "An unknown partner is refused" 422 PARTNER_NOT_FOUND \
+  -X POST "$BPBASE/9999999999/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Create","newCountryCode":"KH","newBankKey":"ACLEDAKH",
+       "newBankName":"ACLEDA Bank","newAccountNumber":"111-1","newAccountHolder":"X",
+       "reason":"Unknown partner test"}'
+
+# Creating details for the partner that had none — the exclusion from the
+# payment run two blocks above was the symptom; this is the cure.
+check "The partner with no bank details gets some" 202 - \
+  -X POST "$BPBASE/1000000003/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Create","newCountryCode":"KH","newBankKey":"WINGKHPP",
+       "newBankName":"Wing Bank","newAccountNumber":"555444-3",
+       "newAccountHolder":"Kampot Cane Growers Association","newIsDefault":true,
+       "newValidFrom":"2026-01-01",
+       "reason":"Supplier provided bank details on their first invoice"}'
+BNK4=$(json_field requestId)
+check "...an account already held by another partner is refused" 422 PARTNER_BANK_DUPLICATE \
+  -X POST "$BPBASE/1000000004/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Create","newCountryCode":"KH","newBankKey":"ACLBKHPP",
+       "newBankName":"ACLEDA Bank Plc","newAccountNumber":"0002-00-999888-7",
+       "newAccountHolder":"Someone Else","reason":"Duplicate account test"}'
+check "...approved" 200 - \
+  -X POST "$CHANGES/$BNK4/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Details match the letterhead on the invoice"}'
+assert_body "...and applied" '"status":"Applied"'
+assert_body "...valid from the date the approver saw" '"proposedValidFrom":"2026-01-01"'
+
+check "...so a transfer run now pays the partner it used to exclude" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-28","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000003"}'
+assert_body "...for the amount that was previously excluded" '"totalToPay":75'
+assert_body "...with nothing left excluded" '"excluded":\[\]'
+
+check "The audit trail records the change" 200 - \
+  "$CHANGES/$BNK" -H "$BANKCLERK"
+assert_body "...naming who asked" '"requestedBy":"seed.bankclerk"'
+assert_body "...and who signed it off" '"decidedBy":"seed.approver"'
+assert_body "...with the approver's own words" 'Confirmed by phone'
+
+check "An unknown request is not found" 404 NOT_FOUND \
+  "$CHANGES/BNK-99999999" -H "$BANKCLERK"
+
+# Maker-checker itself, through the one role that could otherwise self-approve.
+# seed.banksupervisor holds F_BP_BANK *and* W_APPROVE for PartnerBank — a
+# combination SOD004 rates Critical and a real installation will eventually
+# grant. The runtime control is what stops it becoming a self-approval.
+check "A supervisor who can both maintain and approve raises a change" 202 - \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKSUP" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newBankName":"ACLEDA Bank Plc (Head Office)",
+       "reason":"Bank renamed its branch"}'
+BNK5=$(json_field requestId)
+check "...and cannot approve their own, though the role allows it" 422 MAKER_CHECKER_VIOLATION \
+  -X POST "$CHANGES/$BNK5/approve" -H "$BANKSUP" -H "$JSON" -d '{}'
+check "...while the same role in another person's hands can" 200 - \
+  -X POST "$CHANGES/$BNK5/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Branch rename confirmed on the bank website"}'
+assert_body "...and it applies" '"status":"Applied"'
+
+# The rule is on the object type, so the engine cannot be talked into skipping it.
+check "A clerk raises a change on the other partner" 202 - \
+  -X POST "$BPBASE/1000000003/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"555444-3","newSwift":"WINGKHPPXXX",
+       "reason":"Adding SWIFT for international transfers"}'
+BNK6=$(json_field requestId)
+check "...which the supervisor may approve, being a different person" 200 - \
+  -X POST "$CHANGES/$BNK6/approve" -H "$BANKSUP" -H "$JSON" \
+  -d '{"comment":"SWIFT verified against the Wing Bank published list"}'
+assert_body "...so the control is about the person, not the role" '"status":"Applied"'
+assert_body "...and the supervisor is on the record as the approver" '"decidedBy":"seed.banksupervisor"'
+
+check "Deactivating an account still needs a second signature" 202 - \
+  -X POST "$BPBASE/1000000003/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Deactivate","accountNumber":"555444-3",
+       "reason":"Supplier closed the account"}'
+BNK7=$(json_field requestId)
+check "...and the account still works until it is given" 200 - \
+  "$BPBASE/1000000003/bank-details" -H "$BANKCLERK"
+assert_body "...still current" '"isCurrent":true'
+check "...approved" 200 - \
+  -X POST "$CHANGES/$BNK7/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Closure letter on file"}'
+check "...and now it is closed, not deleted" 200 - \
+  "$BPBASE/1000000003/bank-details" -H "$BANKCLERK"
+assert_body "...the row survives as the record of where money went" '"accountNumber":"555444-3"'
+assert_body "...but is no longer current" '"isCurrent":false'
+
+check "Trial balance still foots after bank maintenance" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF10=$(json_field difference)
+if [ -n "$DIFF10" ] && awk -v d="$DIFF10" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...difference $DIFF10"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF10:-missing}"; FAILURES+=("post-bank balance"); fail=$((fail+1))
 fi
 
 echo

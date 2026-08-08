@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../S4HERP.Finance.Domain/S4HERP.Finance.Domain.csproj" />
+    <!-- The number range allocator; cfg.NumberRange is Organization's table. -->
+    <ProjectReference Include="../../Organization/S4HERP.Organization.Application/S4HERP.Organization.Application.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/S4HERP.BuildingBlocks.Application/S4HERP.BuildingBlocks.Application.csproj" />
     <!-- Finance derives CO objects and posts partner lines; both dependencies
          run Finance -> module, never the reverse. -->

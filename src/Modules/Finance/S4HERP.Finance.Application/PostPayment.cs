@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using S4HERP.BuildingBlocks.Application;
 using S4HERP.BuildingBlocks.Infrastructure;
 using S4HERP.Finance.Domain;
+using S4HERP.Organization.Application;
 using S4HERP.Organization.Domain;
 
 namespace S4HERP.Finance.Application;

@@ -271,3 +271,42 @@ public class PartnerCreditProfileConfiguration : IEntityTypeConfiguration<Partne
             "CK_BpCreditProfile_Limit", "[CreditLimit] >= 0"));
     }
 }
+
+/// <summary>
+/// The staging table for bank detail changes. Its own table rather than columns
+/// on <see cref="PartnerBank"/>, so the live record holds approved values and
+/// only approved values — see the entity for why that distinction is the whole
+/// design.
+/// </summary>
+public class PartnerBankChangeRequestConfiguration
+    : IEntityTypeConfiguration<PartnerBankChangeRequest>
+{
+    public void Configure(EntityTypeBuilder<PartnerBankChangeRequest> b)
+    {
+        b.ToTable("BusinessPartnerBankChangeRequest", Schemas.Mdm);
+        b.HasIndex(x => new { x.TenantId, x.RequestId }).IsUnique();
+        b.HasIndex(x => new { x.TenantId, x.PartnerId, x.Status });
+
+        // At most one open request per partner, enforced by the database and not
+        // only by the handler: two requests raised concurrently would both pass a
+        // handler check and then be applied in approval order, silently
+        // overwriting each other.
+        b.HasIndex(x => new { x.TenantId, x.PartnerId })
+            .IsUnique()
+            .HasFilter($"[Status] = {(int)BankChangeStatus.Pending}")
+            .HasDatabaseName("UX_BpBankChange_OnePending");
+
+        b.HasOne(x => x.Partner).WithMany().HasForeignKey(x => x.PartnerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Restrict, not Cascade: losing the record of a change because the
+        // account it changed was later removed is exactly backwards.
+        b.HasOne(x => x.PartnerBank).WithMany().HasForeignKey(x => x.PartnerBankId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // The before-image. Unbounded by exception — the model convention forbids
+        // unbounded strings, and this one earns it: it is a JSON snapshot whose
+        // width follows the entity, not a value anyone queries on.
+        b.Property(x => x.PreviousValues).HasColumnType("nvarchar(max)");
+    }
+}

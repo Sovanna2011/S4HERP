@@ -673,16 +673,20 @@ public sealed class MyJournalApprovalsQueryHandler(
             return [];
         }
 
-        var companyCodeIds = pending.Select(p => p.CompanyCodeId).Distinct().ToList();
+        // A journal entry always has a company code; the inbox type allows null
+        // now that the same engine also carries client-level objects.
+        var companyCodeIds = pending
+            .Where(p => p.CompanyCodeId != null)
+            .Select(p => p.CompanyCodeId!.Value).Distinct().ToList();
         var codes = await db.Set<CompanyCode>()
             .Where(c => companyCodeIds.Contains(c.Id))
             .ToDictionaryAsync(c => c.Id, c => c.Code, cancellationToken);
 
         return pending
             .Select(p => new JournalApprovalInboxItem(
-                codes.GetValueOrDefault(p.CompanyCodeId, "?"),
+                p.CompanyCodeId is { } id ? codes.GetValueOrDefault(id, "?") : "?",
                 p.ObjectId,
-                p.Amount,
+                p.Amount ?? 0m,
                 p.SubmittedBy,
                 p.SubmittedAtUtc,
                 p.Sequence,

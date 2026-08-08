@@ -453,6 +453,9 @@ public partial class SampleDataSeeder
             ("SOD003", "Journal posting and journal approval",
                 "Defeats maker-checker on financial documents.", SodSeverity.High,
                 "F_BKPF_BUK", "W_APPROVE"),
+            ("SOD004", "Vendor bank maintenance and its own approval",
+                "Defeats maker-checker on the master data that decides where money goes.",
+                SodSeverity.Critical, "F_BP_BANK", "W_APPROVE"),
         };
 
         foreach (var r in sodRules)
@@ -474,6 +477,7 @@ public partial class SampleDataSeeder
             ("FI_SUPERVISOR", "Financial supervisor (posts and approves — violates SOD003)"),
             ("FI_TREASURY", "Treasury (releases payment files to the bank)"),
             ("BP_MAINTAINER", "Business partner maintainer"),
+            ("BP_SUPERVISOR", "Business partner supervisor (maintains and approves — violates SOD004)"),
             ("AUDITOR", "Auditor (display only)"),
             ("ADMIN", "System administrator"),
         };
@@ -565,6 +569,36 @@ public partial class SampleDataSeeder
         await GrantAsync(roleMap["FI_TREASURY"], "S_EXPORT",
             [("SCOPE", "PAYMENT_FILE", null)], objectMap, fieldMap, ct);
 
+        // Bank detail maintenance, and nothing else. Pointedly no F_BKPF_BUK at
+        // all: SOD001 pairs F_BP_BANK with it precisely because a person who can
+        // both redirect a vendor's account and run the payment needs no accomplice.
+        // ACTVT 02 is change, 03 display; there is no 01, because creating a bank
+        // record is a change to a partner rather than a new object in its own right.
+        await GrantAsync(roleMap["BP_MAINTAINER"], "F_BP_BANK",
+            [("ACTVT", "02", null), ("ACTVT", "03", null)], objectMap, fieldMap, ct);
+
+        // Deliberately in violation of SOD004, and for the same reason FI_SUPERVISOR
+        // violates SOD003: maker-checker is the runtime control that stops a
+        // permitted role combination becoming a self-approval, and a control
+        // nobody in the seed can trigger is a control nobody has tested. Without
+        // this role, "the requester cannot approve" would be indistinguishable
+        // from "the requester lacks W_APPROVE", and only the second was true.
+        await GrantAsync(roleMap["BP_SUPERVISOR"], "F_BP_BANK",
+            [("ACTVT", "02", null), ("ACTVT", "03", null)], objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["BP_SUPERVISOR"], "W_APPROVE",
+            [("WFTYPE", "PartnerBank", null)], objectMap, fieldMap, ct);
+
+        // The approvers gain the new object type. They hold no F_BP_BANK, so an
+        // approver cannot raise the change they then sign — maker-checker stops
+        // the same *person* doing both, and this stops the same *role* from being
+        // able to. No AMOUNT_TO: a bank change has no amount, and inventing one
+        // would let an approval limit silently govern something it cannot measure.
+        foreach (var role in new[] { "FI_APPROVER", "FI_SENIOR_APPROVER" })
+        {
+            await GrantAsync(roleMap[role], "W_APPROVE",
+                [("WFTYPE", "PartnerBank", null)], objectMap, fieldMap, ct);
+        }
+
         // Passwords are absent by design: Phase 3 identifies callers by header in
         // Development only, and a seeded credential would outlive the seed.
         await CreateUserAsync("seed.accountant", "Seed Accountant", roleMap["FI_ACCOUNTANT"],
@@ -587,6 +621,25 @@ public partial class SampleDataSeeder
         await CreateUserAsync("seed.treasury", "Seed Treasury (releases payment files)",
             roleMap["FI_TREASURY"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
             validFrom, ct);
+
+        // Two of them, holding the identical role. One is not enough to test the
+        // control: with a single maintainer, "the requester cannot approve" and
+        // "nobody with this role can approve" are indistinguishable, and only the
+        // first is what maker-checker actually claims.
+        await CreateUserAsync("seed.bankclerk", "Seed Bank Clerk (maintains partner bank details)",
+            roleMap["BP_MAINTAINER"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct);
+        await CreateUserAsync("seed.bankclerk2", "Seed Bank Clerk, second (same role, different person)",
+            roleMap["BP_MAINTAINER"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct);
+        // Two roles, and both are needed for the combination to be real. BP_SUPERVISOR
+        // carries F_BP_BANK and W_APPROVE — the SOD004 violation. FI_APPROVER is
+        // what the seeded rule names as the deciding role, and without it the
+        // authority would exist while every approval still failed the step check,
+        // which would have made the maker-checker test pass for the wrong reason.
+        await CreateUserAsync("seed.banksupervisor", "Seed Bank Supervisor (maintains and approves)",
+            roleMap["BP_SUPERVISOR"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct, secondRoleId: roleMap["FI_APPROVER"]);
 
         await SeedApprovalRulesAsync(validFrom, ct);
     }
@@ -666,13 +719,40 @@ public partial class SampleDataSeeder
             });
         }
 
+        // Bank details, and the first rule in the system with no amount test. A
+        // threshold would be meaningless here — there is no sum to compare — so
+        // the rule matches on object type alone and every change waits for a
+        // second person, however small it looks.
+        db.Add(new ApprovalRule
+        {
+            TenantId = _tenantId,
+            Code = "BP_BANK_L1",
+            Name = "Business partner bank details, any change",
+            ObjectType = "PartnerBank",
+            DocumentTypeCode = null,
+            FromAmount = 0m,
+            CurrencyId = null,
+            ApproverRoleCode = "FI_APPROVER",
+            StepSequence = 10,
+            MakerCheckerEnforced = true,
+            ValidFrom = validFrom,
+            CreatedBy = "SEED",
+        });
+
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Kept as a single-role signature with an optional second, because every
+    /// seeded user but one holds exactly one role and reading them that way is the
+    /// point. The exception needs two: an approval step names the role that
+    /// decides it, so holding W_APPROVE is not enough on its own — you must hold
+    /// the role the rule names.
+    /// </summary>
     private async Task CreateUserAsync(
         string userName, string displayName, long roleId, IEnumerable<long> companyCodeIds,
         long defaultCompanyCodeId, DateOnly validFrom, CancellationToken ct,
-        UserType userType = UserType.Service)
+        UserType userType = UserType.Service, long? secondRoleId = null)
     {
         var user = new User
         {
@@ -694,6 +774,14 @@ public partial class SampleDataSeeder
             TenantId = _tenantId, UserId = user.Id, RoleId = roleId,
             ValidFrom = validFrom, CreatedBy = "SEED",
         });
+        if (secondRoleId is { } second)
+        {
+            db.Add(new UserRole
+            {
+                TenantId = _tenantId, UserId = user.Id, RoleId = second,
+                ValidFrom = validFrom, CreatedBy = "SEED",
+            });
+        }
         foreach (var companyCodeId in companyCodeIds)
         {
             db.Add(new UserCompanyCode

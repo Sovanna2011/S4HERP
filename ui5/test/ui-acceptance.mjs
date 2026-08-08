@@ -54,6 +54,33 @@ async function open(hash) {
   await page.goto(`${BASE}/index.html?run=${navCount}${hash}`, { waitUntil: 'networkidle' });
 }
 
+/// The approval panel loads on its own request, so a control appearing is not
+/// proof the panel is rendered or its text has arrived. Polling instead of
+/// asserting once removes a race that failed roughly one run in three and looked
+/// like a bug in the approval history rather than in the test. Both helpers
+/// return false on timeout rather than throwing, so a genuine failure still
+/// reports as one failed check and the rest of the suite keeps running.
+async function becomesVisible(selector, timeout = 15000) {
+  try {
+    await page.waitForSelector(selector, { state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function textAppears(selector, needle, timeout = 15000) {
+  try {
+    await page.waitForFunction(
+      ([sel, text]) => document.querySelector(sel)?.innerText?.includes(text) ?? false,
+      [selector, needle],
+      { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function setUser(userName) {
   await page.evaluate((u) => {
     const raw = window.localStorage.getItem('s4herp.context');
@@ -185,9 +212,9 @@ check('A parked document offers Submit, not Reverse',
 await page.locator(ID('documentDisplay', 'submitButton')).click();
 await page.waitForSelector(ID('documentDisplay', 'approveButton'), { state: 'visible', timeout: 30000 });
 check('Submitting shows the approval history',
-  await page.locator(ID('documentDisplay', 'workflowPanel')).isVisible());
+  await becomesVisible(ID('documentDisplay', 'workflowPanel')));
 check('...with the step still pending',
-  (await page.locator(ID('documentDisplay', 'workflowSteps')).innerText()).includes('FI_APPROVER'));
+  await textAppears(ID('documentDisplay', 'workflowSteps'), 'FI_APPROVER'));
 
 // The maker's own approve button is on screen. It is the server that refuses —
 // hiding it would be the wrong lesson (§22.1).
@@ -228,7 +255,7 @@ await page.waitForSelector(ID('documentDisplay', 'reverseButton'), { state: 'vis
 check('Approving posts the document',
   (await page.locator(ID('documentDisplay', 'documentPage')).innerText()).includes('Posted'));
 check('...and the approval history records who approved it',
-  (await page.locator(ID('documentDisplay', 'workflowSteps')).innerText()).includes('seed.approver'));
+  await textAppears(ID('documentDisplay', 'workflowSteps'), 'seed.approver'));
 
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });

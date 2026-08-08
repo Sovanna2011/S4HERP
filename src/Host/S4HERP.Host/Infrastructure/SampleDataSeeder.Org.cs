@@ -272,6 +272,16 @@ public partial class SampleDataSeeder
             IsGapless = false, PaddingLength = 6, CreatedBy = "SEED",
         });
 
+        // Bank change requests. Same shape and same reasoning as the payment run
+        // range: an internal handle that must be unique, with no legal claim to
+        // being gapless.
+        db.Add(new NumberRange
+        {
+            TenantId = _tenantId, Code = "BK", ObjectType = NumberRangeObject.PartnerBankChange,
+            FiscalYear = 0, FromNumber = 1, ToNumber = 99_999_999, CurrentNumber = 0,
+            IsGapless = false, PaddingLength = 8, CreatedBy = "SEED",
+        });
+
         var postingKeys = new (string Code, string Name, AccountType Type, bool Debit)[]
         {
             ("40", "G/L debit", AccountType.GeneralLedger, true),

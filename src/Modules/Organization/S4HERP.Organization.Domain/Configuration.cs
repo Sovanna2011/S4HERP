@@ -33,6 +33,7 @@ public enum NumberRangeObject
     ClearingDocument = 4,
     InternalOrder = 5,
     PaymentRun = 6,
+    PartnerBankChange = 7,
 }
 
 public class Currency : AuditableEntity, IDeactivatable

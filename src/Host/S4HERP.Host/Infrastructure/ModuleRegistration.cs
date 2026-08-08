@@ -2,7 +2,9 @@ using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using S4HERP.BuildingBlocks.Application;
 using S4HERP.BuildingBlocks.Infrastructure;
+using S4HERP.BusinessPartner.Application;
 using S4HERP.Finance.Application;
+using S4HERP.Organization.Application;
 using S4HERP.Security.Application;
 using S4HERP.Workflow.Application;
 using S4HERP.Workflow.Contracts;
@@ -121,6 +123,24 @@ public static class ModuleRegistration
         services.AddScoped<INumberRangeAllocator, NumberRangeAllocator>();
         services.AddScoped<IApprovalService, ApprovalService>();
         services.AddScoped<ParkedDocumentPoster>();
+
+        // Business partner bank maintenance. The only writer of mdm.BusinessPartnerBank,
+        // which is what makes "approved by a second person" an invariant.
+        services.AddScoped<
+            ICommandHandler<RequestBankChangeCommand, BankChangeRequestResult>,
+            RequestBankChangeHandler>();
+        services.AddScoped<
+            ICommandHandler<DecideBankChangeCommand, BankChangeRequestResult>,
+            DecideBankChangeHandler>();
+        services.AddScoped<
+            ICommandHandler<WithdrawBankChangeCommand, BankChangeRequestResult>,
+            WithdrawBankChangeHandler>();
+        services.AddScoped<
+            IQueryHandler<GetBankChangeQuery, BankChangeRequestResult>,
+            GetBankChangeQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<GetPartnerBanksQuery, PartnerBanksResult>,
+            GetPartnerBanksQueryHandler>();
 
         services.AddScoped<
             ICommandHandler<PostJournalEntryCommand, PostJournalEntryResult>,
