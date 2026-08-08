@@ -144,6 +144,15 @@ public static class ModuleRegistration
             ICommandHandler<DeleteJournalEntryCommand, DeleteJournalEntryResult>,
             DeleteJournalEntryHandler>();
         services.AddScoped<
+            ICommandHandler<PostPaymentCommand, PostPaymentResult>,
+            PostPaymentHandler>();
+        services.AddScoped<
+            ICommandHandler<ResetClearingCommand, ResetClearingResult>,
+            ResetClearingHandler>();
+        services.AddScoped<
+            IQueryHandler<OpenItemsQuery, OpenItemsResult>,
+            OpenItemsQueryHandler>();
+        services.AddScoped<
             IQueryHandler<TrialBalanceQuery, TrialBalanceResult>,
             TrialBalanceQueryHandler>();
         services.AddScoped<

@@ -64,6 +64,21 @@ balanced_amount() {
 JSON
 }
 
+# customer_invoice <reference> <amount> [payment-terms]
+# A customer invoice is an ordinary document with a partner line: debit the
+# customer, credit revenue. The due date is derived from the payment terms.
+customer_invoice() {
+  local terms=""
+  [ -n "${3:-}" ] && terms=",\"paymentTerms\":\"$3\""
+  cat <<JSON
+{"companyCode":"1000","documentType":"DR","documentDate":"2026-04-10",
+ "postingDate":"2026-04-10","currency":"USD","reference":"$1","headerText":"AR test",
+ "lines":[
+   {"postingKey":"01","amount":$2,"businessPartner":"$CUSTOMER","lineText":"Invoice"$terms},
+   {"postingKey":"50","amount":$2,"glAccount":"4000000000","costCenter":"CC102000","lineText":"Revenue"}]}
+JSON
+}
+
 # json_field <json-key> — first scalar value of that key in $LAST_BODY
 json_field() {
   printf '%s' "$LAST_BODY" | grep -o "\"$1\":\(\"[^\"]*\"\|[-0-9.a-z]*\)" | head -1 \
@@ -526,6 +541,183 @@ if [ -n "$DIFF4" ] && awk -v d="$DIFF4" 'BEGIN{exit !(d==0)}'; then
   echo "  PASS  ...difference $DIFF4"; pass=$((pass+1))
 else
   echo "  FAIL  difference ${DIFF4:-missing}"; FAILURES+=("post-discard balance"); fail=$((fail+1))
+fi
+
+echo "== Payment terms and due dates =="
+
+# The seeded customer. Resolved rather than hard-coded, so the suite survives a
+# change to the business-partner number range.
+CUSTOMER=$(curl -s -m 20 "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D" \
+  -H "$ACCOUNTANT" | grep -o '"businessPartner":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -z "$CUSTOMER" ]; then
+  echo "  FAIL  could not resolve a seeded customer from the open-items report"
+  FAILURES+=("customer lookup"); fail=$((fail+1)); CUSTOMER="1000000001"
+else
+  echo "  PASS  Seeded customer $CUSTOMER has open items"; pass=$((pass+1))
+fi
+
+check "An invoice on N030 terms posts" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "$(customer_invoice AR-030 500.00 N030)"
+INV30=$(json_field documentNumber)
+
+check "...and its open item is due 30 days after the document date" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D&businessPartner=$CUSTOMER" \
+  -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q '"dueDate":"2026-05-10"'; then
+  echo "  PASS  ...2026-04-10 + 30 = 2026-05-10"; pass=$((pass+1))
+else
+  echo "  FAIL  no open item due 2026-05-10"; FAILURES+=("N030 due date"); fail=$((fail+1))
+fi
+
+check "An invoice on N014 terms posts" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "$(customer_invoice AR-014 200.00 N014)"
+INV14=$(json_field documentNumber)
+
+check "...and is due 14 days out, not 30" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D&businessPartner=$CUSTOMER" \
+  -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q '"dueDate":"2026-04-24"'; then
+  echo "  PASS  ...the term drives the date, not the caller"; pass=$((pass+1))
+else
+  echo "  FAIL  no open item due 2026-04-24"; FAILURES+=("N014 due date"); fail=$((fail+1))
+fi
+
+check "Unknown payment terms are refused" 422 UNKNOWN_OBJECT \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "$(customer_invoice AR-BAD 100.00 ZZZZ)"
+
+echo "== Open items and aging =="
+
+check "The open-items report is served" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D&asOf=2026-06-30" \
+  -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q '"agingBucket":"31-60"'; then
+  echo "  PASS  ...and buckets a 2026-05-10 item at 51 days on 2026-06-30"; pass=$((pass+1))
+else
+  echo "  FAIL  expected a 31-60 bucket"; FAILURES+=("aging bucket"); fail=$((fail+1))
+fi
+if printf '%s' "$LAST_BODY" | grep -q '"totalOverdue":'; then
+  echo "  PASS  ...and reports a total overdue"; pass=$((pass+1))
+else
+  echo "  FAIL  no totalOverdue"; FAILURES+=("aging total"); fail=$((fail+1))
+fi
+
+check "Nothing is overdue before the due date" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D&asOf=2026-04-11" \
+  -H "$ACCOUNTANT"
+OVERDUE=$(json_field totalOverdue)
+if [ -n "$OVERDUE" ] && awk -v d="$OVERDUE" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...totalOverdue $OVERDUE the day after invoicing"; pass=$((pass+1))
+else
+  echo "  FAIL  totalOverdue ${OVERDUE:-missing} on 2026-04-11"
+  FAILURES+=("premature overdue"); fail=$((fail+1))
+fi
+
+check "An auditor may read the report" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000" -H "$AUDITOR"
+
+check "A clerk may not read another company code's" 403 NOT_AUTHORIZED \
+  "$BASE/api/v1/finance/open-items?companyCode=2000" -H "$CLERK"
+
+echo "== Payment and clearing =="
+
+check "A payment must select something" 422 NO_ITEMS_SELECTED \
+  -X POST "$BASE/api/v1/finance/payments" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"companyCode\":\"1000\",\"postingDate\":\"2026-04-15\",
+       \"businessPartner\":\"$CUSTOMER\",\"bankAccount\":\"1000100000\",\"items\":[]}"
+
+check "Clearing more than is open is refused" 422 OPEN_ITEM_NOT_FOUND \
+  -X POST "$BASE/api/v1/finance/payments" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"companyCode\":\"1000\",\"postingDate\":\"2026-04-15\",
+       \"businessPartner\":\"$CUSTOMER\",\"bankAccount\":\"1000100000\",
+       \"items\":[{\"fiscalYear\":2026,\"documentNumber\":$INV14,\"lineNumber\":1,\"amount\":999.00}]}"
+if printf '%s' "$LAST_BODY" | grep -q CLEARING_EXCEEDS_OPEN_AMOUNT; then
+  echo "  PASS  ...naming CLEARING_EXCEEDS_OPEN_AMOUNT as the reason"; pass=$((pass+1))
+else
+  echo "  FAIL  did not name the over-clearing"; FAILURES+=("over-clearing reason"); fail=$((fail+1))
+fi
+
+check "A partial payment clears part of an invoice" 201 - \
+  -X POST "$BASE/api/v1/finance/payments" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"companyCode\":\"1000\",\"postingDate\":\"2026-04-15\",
+       \"businessPartner\":\"$CUSTOMER\",\"bankAccount\":\"1000100000\",\"reference\":\"PAY-PART\",
+       \"items\":[{\"fiscalYear\":2026,\"documentNumber\":$INV14,\"lineNumber\":1,\"amount\":80.00}]}"
+assert_body "...leaving the remainder open" \
+  '"itemsPartiallyCleared":1.*"remainingOpen":120'
+
+check "A full payment clears the rest" 201 - \
+  -X POST "$BASE/api/v1/finance/payments" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"companyCode\":\"1000\",\"postingDate\":\"2026-04-16\",
+       \"businessPartner\":\"$CUSTOMER\",\"bankAccount\":\"1000100000\",\"reference\":\"PAY-REST\",
+       \"items\":[{\"fiscalYear\":2026,\"documentNumber\":$INV14,\"lineNumber\":1}]}"
+PAYDOC=$(json_field documentNumber)
+assert_body "...and the item is settled" '"itemsCleared":1.*"remainingOpen":0'
+
+check "The cleared item drops out of the open-items report" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D&businessPartner=$CUSTOMER" \
+  -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q "\"documentNumber\":$INV14,"; then
+  echo "  FAIL  the cleared invoice is still listed"; FAILURES+=("cleared still open"); fail=$((fail+1))
+else
+  echo "  PASS  ...and is listed again only with includeCleared"; pass=$((pass+1))
+fi
+
+check "Clearing an already-cleared item is refused" 422 OPEN_ITEM_NOT_FOUND \
+  -X POST "$BASE/api/v1/finance/payments" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"companyCode\":\"1000\",\"postingDate\":\"2026-04-17\",
+       \"businessPartner\":\"$CUSTOMER\",\"bankAccount\":\"1000100000\",
+       \"items\":[{\"fiscalYear\":2026,\"documentNumber\":$INV14,\"lineNumber\":1}]}"
+if printf '%s' "$LAST_BODY" | grep -q ITEM_NOT_OPEN; then
+  echo "  PASS  ...naming ITEM_NOT_OPEN"; pass=$((pass+1))
+else
+  echo "  FAIL  did not name ITEM_NOT_OPEN"; FAILURES+=("double clearing reason"); fail=$((fail+1))
+fi
+
+check "The payment document balances like any other" 200 - \
+  "$BASE/api/v1/finance/journal-entries/1000/2026/$PAYDOC" -H "$ACCOUNTANT"
+assert_body "...bank against the reconciliation account" '"documentType":"DZ"'
+
+check "Trial balance still foots after payments" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF5=$(json_field difference)
+if [ -n "$DIFF5" ] && awk -v d="$DIFF5" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...difference $DIFF5"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF5:-missing}"; FAILURES+=("post-payment balance"); fail=$((fail+1))
+fi
+
+echo "== Reset clearing =="
+
+check "Resetting reopens the items" 200 - \
+  -X POST "$BASE/api/v1/finance/payments/1000/2026/$PAYDOC/reset-clearing" -H "$ACCOUNTANT"
+# Two, not one: the invoice reopens and so does the payment's own open item.
+# Reopening only the invoice is what broke the Phase 2 reconciliation rule.
+assert_body "...reopening both sides of the clearing" '"itemsReopened":2'
+
+check "...and the invoice is open again" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=D&businessPartner=$CUSTOMER" \
+  -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q "\"documentNumber\":$INV14,"; then
+  echo "  PASS  ...with only the earlier partial payment still applied"; pass=$((pass+1))
+else
+  echo "  FAIL  the reopened invoice is not in the report"; FAILURES+=("reset reopen"); fail=$((fail+1))
+fi
+
+check "A clearing cannot be reset twice" 422 CLEARING_ALREADY_RESET \
+  -X POST "$BASE/api/v1/finance/payments/1000/2026/$PAYDOC/reset-clearing" -H "$ACCOUNTANT"
+
+check "Resetting a document that cleared nothing is refused" 422 CLEARING_NOT_FOUND \
+  -X POST "$BASE/api/v1/finance/payments/1000/2026/$INV30/reset-clearing" -H "$ACCOUNTANT"
+
+check "Trial balance is untouched by a clearing reset" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF6=$(json_field difference)
+if [ -n "$DIFF6" ] && awk -v d="$DIFF6" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...clearing is not a ledger fact (ADR-09), difference $DIFF6"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF6:-missing}"; FAILURES+=("post-reset balance"); fail=$((fail+1))
 fi
 
 echo

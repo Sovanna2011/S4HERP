@@ -15,6 +15,7 @@ record of what increment 1 delivered rather than edited to match today:
 | 2 — tax calculation and reversal (FB08) | commit `6ec8b4e` |
 | 3 — park, submit, approve, maker-checker | [increment-3-workflow.md](increment-3-workflow.md) |
 | 4 — withdraw, discard, approval screens | [increment-4-lifecycle.md](increment-4-lifecycle.md) |
+| 5 — payment terms, payments, clearing, aging | [increment-5-ar-ap.md](increment-5-ar-ap.md) |
 
 ## What was built
 
@@ -233,6 +234,7 @@ Increment 2 of Phase 3, in dependency order:
 2. **Tax calculation** and automatic tax line generation. *(Done: increment 2.)*
 3. **Workflow and maker-checker**, which the SoD rules already describe.
    *(Done: [increment 3](increment-3-workflow.md).)*
-4. **AR/AP**: invoices, payments, clearing, the payment run. *(Still to build.)*
+4. **AR/AP**: invoices, payments, clearing, the payment run.
+   *(Done, except the payment run: [increment 5](increment-5-ar-ap.md).)*
 
 The [roadmap](../blueprint/14-roadmap.md) is otherwise unchanged.

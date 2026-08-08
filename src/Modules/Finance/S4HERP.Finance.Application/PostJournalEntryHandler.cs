@@ -155,6 +155,17 @@ public sealed class PostJournalEntryHandler(
         /// the journal alone, without joining the partner master.
         /// </summary>
         public required Dictionary<string, long> ReconciliationAccounts { get; init; }
+
+        /// <summary>Partner number to the payment terms on its company-code facet.</summary>
+        public required Dictionary<string, string?> PartnerPaymentTerms { get; init; }
+
+        /// <summary>Payment terms by code, for due-date derivation.</summary>
+        public required Dictionary<string, PaymentTerm> PaymentTerms { get; init; }
+
+        /// <summary>The three dates a baseline rule may pick from.</summary>
+        public required DateOnly DocumentDate { get; init; }
+        public required DateOnly PostingDate { get; init; }
+        public required DateOnly EntryDate { get; init; }
         public required Dictionary<string, CostCenter> CostCenters { get; init; }
         public required Dictionary<string, ProfitCenter> ProfitCenters { get; init; }
         public required Dictionary<long, string> ProfitCenterCodes { get; init; }
@@ -236,6 +247,19 @@ public sealed class PostJournalEntryHandler(
             select new { partner.PartnerNumber, facet.ReconciliationAccountId })
             .ToDictionaryAsync(x => x.PartnerNumber, x => x.ReconciliationAccountId, ct);
 
+        var partnerTerms = await (
+            from facet in db.Set<BusinessPartner.Domain.PartnerCompanyCode>()
+            join partner in db.Set<BusinessPartner.Domain.Partner>()
+                on facet.PartnerId equals partner.Id
+            where facet.CompanyCodeId == companyCode.Id && partnerIds.Contains(facet.PartnerId)
+            select new { partner.PartnerNumber, facet.PaymentTerms })
+            .ToDictionaryAsync(x => x.PartnerNumber, x => (string?)x.PaymentTerms, ct);
+
+        var today = DateOnly.FromDateTime(clock.UtcNow);
+        var paymentTerms = await db.Set<PaymentTerm>()
+            .Where(t => t.IsActive)
+            .ToDictionaryAsync(t => t.Code, ct);
+
         var costCenters = await db.Set<CostCenter>()
             .Where(c => c.CompanyCodeId == companyCode.Id)
             .ToDictionaryAsync(c => c.Code, ct);
@@ -257,6 +281,11 @@ public sealed class PostJournalEntryHandler(
             PostingKeys = postingKeys,
             Partners = partners,
             ReconciliationAccounts = reconciliationAccounts,
+            PartnerPaymentTerms = partnerTerms,
+            PaymentTerms = paymentTerms,
+            DocumentDate = command.DocumentDate,
+            PostingDate = command.PostingDate,
+            EntryDate = today,
             CostCenters = costCenters,
             ProfitCenters = profitCenters,
             ProfitCenterCodes = profitCenters.ToDictionary(p => p.Value.Id, p => p.Key),
@@ -492,6 +521,14 @@ public sealed class PostJournalEntryHandler(
             return null;
         }
 
+        // Payment terms: explicit wins, then the partner's company-code facet.
+        // Derived rather than demanded, because the terms agreed with a customer
+        // live on the customer, not in whatever the caller happened to type.
+        var paymentTerms = input.PaymentTerms
+            ?? context.PartnerPaymentTerms.GetValueOrDefault(input.BusinessPartner);
+
+        var dueDate = ResolveDueDate(input, paymentTerms, field, context, violations);
+
         return new WorkingLine
         {
             LineNumber = lineNumber,
@@ -510,10 +547,43 @@ public sealed class PostJournalEntryHandler(
             LocalAmount = currencies.Translate(signed, context.RateToLocal),
             Assignment = input.Assignment,
             LineText = input.LineText,
-            DueDate = input.DueDate,
-            PaymentTerms = input.PaymentTerms,
+            DueDate = dueDate,
+            PaymentTerms = paymentTerms,
             IsOpenItemManaged = true,
         };
+    }
+
+    /// <summary>
+    /// The due date, derived from the payment term rather than taken on trust.
+    /// A caller-supplied date still wins — a negotiated one-off exists — but the
+    /// default is now computed from the term the partner actually has, and an
+    /// unknown term is an error rather than a silently missing due date.
+    /// </summary>
+    private DateOnly? ResolveDueDate(
+        JournalLineInput input, string? paymentTerms, string field,
+        PostingContext context, List<RuleViolation> violations)
+    {
+        if (input.DueDate is { } explicitDate)
+        {
+            return explicitDate;
+        }
+
+        if (paymentTerms is null)
+        {
+            // No term configured anywhere: the item is payable on the spot, which
+            // is what "no terms" means, rather than never falling due at all.
+            return context.PostingDate;
+        }
+
+        if (!context.PaymentTerms.TryGetValue(paymentTerms, out var term))
+        {
+            violations.Add(new RuleViolation($"{field}.paymentTerms",
+                PostingErrors.UnknownObject,
+                $"Payment terms {paymentTerms} do not exist or are not active."));
+            return null;
+        }
+
+        return term.DueDate(context.DocumentDate, context.PostingDate, context.EntryDate);
     }
 
     private static long? ResolvePartnerCompanyCode(

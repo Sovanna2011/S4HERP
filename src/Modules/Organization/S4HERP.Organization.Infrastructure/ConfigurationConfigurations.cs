@@ -171,6 +171,49 @@ public class TaxCodeConfiguration : IEntityTypeConfiguration<TaxCode>
     }
 }
 
+public class PaymentTermConfiguration : IEntityTypeConfiguration<PaymentTerm>
+{
+    public void Configure(EntityTypeBuilder<PaymentTerm> b)
+    {
+        b.ToTable("PaymentTerm", Schemas.Cfg);
+        b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+
+        b.Property(x => x.CashDiscount1Percent).HasColumnType(ColumnTypes.Rate);
+        b.Property(x => x.CashDiscount2Percent).HasColumnType(ColumnTypes.Rate);
+
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_PaymentTerm_NetDays", "[NetDays] >= 0");
+
+            // A discount tier is days *and* a percentage or neither. Half a tier
+            // silently never applies, which is the worst way for it to be wrong.
+            //
+            // Spelled out rather than as `(a IS NULL) = (b IS NULL)`: T-SQL has no
+            // boolean type, so comparing two predicates with = is a syntax error —
+            // one SQL Server only reports when the migration runs.
+            t.HasCheckConstraint(
+                "CK_PaymentTerm_Discount1",
+                "([CashDiscount1Days] IS NULL AND [CashDiscount1Percent] IS NULL) "
+                + "OR ([CashDiscount1Days] IS NOT NULL AND [CashDiscount1Percent] IS NOT NULL)");
+            t.HasCheckConstraint(
+                "CK_PaymentTerm_Discount2",
+                "([CashDiscount2Days] IS NULL AND [CashDiscount2Percent] IS NULL) "
+                + "OR ([CashDiscount2Days] IS NOT NULL AND [CashDiscount2Percent] IS NOT NULL)");
+            t.HasCheckConstraint(
+                "CK_PaymentTerm_DiscountRate",
+                "([CashDiscount1Percent] IS NULL OR ([CashDiscount1Percent] >= 0 AND [CashDiscount1Percent] <= 100)) "
+                + "AND ([CashDiscount2Percent] IS NULL OR ([CashDiscount2Percent] >= 0 AND [CashDiscount2Percent] <= 100))");
+
+            // Tier 2 is the longer, smaller one. Reversed, tier 1 would shadow it
+            // for its whole window and tier 2 would be unreachable.
+            t.HasCheckConstraint(
+                "CK_PaymentTerm_DiscountOrder",
+                "[CashDiscount1Days] IS NULL OR [CashDiscount2Days] IS NULL "
+                + "OR [CashDiscount2Days] > [CashDiscount1Days]");
+        });
+    }
+}
+
 public class TransactionCodeConfiguration : IEntityTypeConfiguration<TransactionCode>
 {
     public void Configure(EntityTypeBuilder<TransactionCode> b)

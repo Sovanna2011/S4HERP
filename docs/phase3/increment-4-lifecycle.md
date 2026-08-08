@@ -269,3 +269,6 @@ still designed but not built: invoices, payments, clearing, dunning and the
 payment run. Open items are now created on every path that reaches the ledger —
 direct posting, no-approval-required submission, and final approval — which is
 the precondition clearing needs.
+
+Delivered by [increment 5](increment-5-ar-ap.md), except the payment run and
+dunning.

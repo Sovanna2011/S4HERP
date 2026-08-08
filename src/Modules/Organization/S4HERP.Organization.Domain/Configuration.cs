@@ -208,6 +208,85 @@ public class TaxCode : AuditableEntity, IDeactivatable, IValidityDated
     public bool IsActive { get; set; } = true;
 }
 
+/// <summary>
+/// When the clock starts for a payment term. SAP calls it the baseline date, and
+/// which date it is matters: an invoice received late is due relative to the
+/// invoice, not relative to the day it was keyed in.
+/// </summary>
+public enum BaselineDateRule
+{
+    DocumentDate = 1,
+    PostingDate = 2,
+    EntryDate = 3,
+}
+
+/// <summary>
+/// Payment terms (SAP's ZTERM). Before this existed the due date on an open item
+/// was whatever the caller supplied, which is not a due date — it is a claim.
+/// The engine now derives it, and a caller-supplied value is an override.
+/// </summary>
+public class PaymentTerm : AuditableEntity, IDeactivatable
+{
+    [MaxLength(4)] public required string Code { get; set; }
+    [MaxLength(60)] public required string Name { get; set; }
+
+    public BaselineDateRule BaselineDateRule { get; set; } = BaselineDateRule.DocumentDate;
+
+    /// <summary>Days from the baseline date to the due date. Zero means due immediately.</summary>
+    public int NetDays { get; set; }
+
+    /// <summary>First cash-discount tier: pay within this many days for this percentage.</summary>
+    public int? CashDiscount1Days { get; set; }
+    public decimal? CashDiscount1Percent { get; set; }
+
+    public int? CashDiscount2Days { get; set; }
+    public decimal? CashDiscount2Percent { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// The baseline date under this term's rule. <paramref name="entryDate"/> is
+    /// the posting run's date, not the document's, which is why it is passed in
+    /// rather than read from a clock here — a domain object with a clock in it is
+    /// a domain object that cannot be tested.
+    /// </summary>
+    public DateOnly BaselineDate(DateOnly documentDate, DateOnly postingDate, DateOnly entryDate) =>
+        BaselineDateRule switch
+        {
+            BaselineDateRule.PostingDate => postingDate,
+            BaselineDateRule.EntryDate => entryDate,
+            _ => documentDate,
+        };
+
+    public DateOnly DueDate(DateOnly documentDate, DateOnly postingDate, DateOnly entryDate) =>
+        BaselineDate(documentDate, postingDate, entryDate).AddDays(NetDays);
+
+    /// <summary>
+    /// The discount percentage still available on <paramref name="on"/>, or null.
+    /// The tiers are ordered, so the first one whose window is still open wins —
+    /// 2% within 10 days beats 1% within 20 on day 5.
+    /// </summary>
+    public decimal? CashDiscountPercentOn(
+        DateOnly on, DateOnly documentDate, DateOnly postingDate, DateOnly entryDate)
+    {
+        var baseline = BaselineDate(documentDate, postingDate, entryDate);
+
+        if (CashDiscount1Days is { } d1 && CashDiscount1Percent is { } p1
+            && on <= baseline.AddDays(d1))
+        {
+            return p1;
+        }
+
+        if (CashDiscount2Days is { } d2 && CashDiscount2Percent is { } p2
+            && on <= baseline.AddDays(d2))
+        {
+            return p2;
+        }
+
+        return null;
+    }
+}
+
 public enum TransactionCodeTarget
 {
     Ui5Route = 1,

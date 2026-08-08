@@ -208,6 +208,60 @@ public static class FinanceEndpoints
             .WithName("GetMyJournalApprovals")
             .WithSummary("Documents waiting on the calling user.");
 
+        var payments = routes.MapGroup("/api/v1/finance/payments").WithTags("Payments");
+
+        payments.MapPost("/", async (
+                PostPaymentCommand command, IDispatcher dispatcher,
+                HttpContext http, CancellationToken ct) =>
+            {
+                var key = http.Request.Headers["Idempotency-Key"].FirstOrDefault()
+                          ?? command.IdempotencyKey;
+
+                var result = await dispatcher.SendAsync(command with { IdempotencyKey = key }, ct);
+
+                return Results.Created(
+                    $"/api/v1/finance/journal-entries/{result.CompanyCode}/{result.FiscalYear}/{result.DocumentNumber}",
+                    result);
+            })
+            .WithName("PostPayment")
+            .WithSummary("Post a payment clearing open items (F-28 / F-53).");
+
+        payments.MapPost("/{companyCode}/{fiscalYear:int}/{documentNumber:long}/reset-clearing", async (
+                string companyCode, int fiscalYear, long documentNumber,
+                IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(new ResetClearingCommand
+                {
+                    CompanyCode = companyCode,
+                    FiscalYear = (short)fiscalYear,
+                    ClearingDocumentNumber = documentNumber,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithName("ResetClearing")
+            .WithSummary("Reopen the items a payment cleared (FBRA).");
+
+        routes.MapGet("/api/v1/finance/open-items", async (
+                string companyCode, string? accountType, string? businessPartner,
+                DateOnly? asOf, bool? includeCleared,
+                IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.QueryAsync(new OpenItemsQuery
+                {
+                    CompanyCode = companyCode,
+                    AccountType = accountType,
+                    BusinessPartner = businessPartner,
+                    AsOf = asOf,
+                    IncludeCleared = includeCleared ?? false,
+                }, ct);
+
+                return Results.Ok(result);
+            })
+            .WithTags("Reports")
+            .WithName("GetOpenItems")
+            .WithSummary("Open items with aging (FBL5N / FBL1N).");
+
         var reports = routes.MapGroup("/api/v1/finance/reports").WithTags("Reports");
 
         reports.MapGet("/trial-balance", async (

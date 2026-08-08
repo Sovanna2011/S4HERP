@@ -120,6 +120,59 @@ public partial class SampleDataSeeder
             -4_400_000m, khr, -1073.60m, usd, postingDate.AddDays(30)));
 
         await db.SaveChangesAsync(ct);
+
+        await AdvanceNumberRangesPastSeedAsync(ct);
+    }
+
+    /// <summary>
+    /// The seed inserts documents with hard-coded numbers, which leaves every
+    /// number range still pointing at its start. The first runtime posting of a
+    /// seeded document type then walks straight into the seeded number and dies
+    /// on the primary key.
+    ///
+    /// This was latent for four increments because the acceptance suite only ever
+    /// posted document type SA, whose range the seed never touched. The first AR
+    /// invoice found it immediately.
+    ///
+    /// Anything that writes a document out of band owes the range an update.
+    /// </summary>
+    private async Task AdvanceNumberRangesPastSeedAsync(CancellationToken ct)
+    {
+        var seeded = await db.Set<JournalEntryHeader>()
+            .Where(h => h.TenantId == _tenantId)
+            .Select(h => new { h.CompanyCodeId, h.FiscalYear, h.DocumentNumber })
+            .ToListAsync(ct);
+
+        if (seeded.Count == 0)
+        {
+            return;
+        }
+
+        var ranges = await db.Set<NumberRange>()
+            .Where(r => r.TenantId == _tenantId
+                        && r.ObjectType == NumberRangeObject.AccountingDocument)
+            .ToListAsync(ct);
+
+        foreach (var range in ranges)
+        {
+            // A document belongs to the range whose interval contains its number,
+            // in its own company code and year — which is exactly the uniqueness
+            // scope of the document number itself.
+            var highest = seeded
+                .Where(d => d.CompanyCodeId == range.CompanyCodeId
+                            && d.FiscalYear == range.FiscalYear
+                            && d.DocumentNumber >= range.FromNumber
+                            && d.DocumentNumber <= range.ToNumber)
+                .Select(d => (long?)d.DocumentNumber)
+                .Max();
+
+            if (highest is { } number && number > range.CurrentNumber)
+            {
+                range.CurrentNumber = number;
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     private JournalEntryHeader NewHeader(

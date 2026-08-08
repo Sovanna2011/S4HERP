@@ -137,9 +137,43 @@ public partial class SampleDataSeeder
 
     // ----------------------------------------------- document configuration
 
+    /// <summary>
+    /// Payment terms. `N030` was already referenced by the seeded partner facets
+    /// as a bare code with nothing behind it; it now exists, and the due dates
+    /// derived from it are real rather than whatever a caller supplied.
+    /// </summary>
+    private void SeedPaymentTerms()
+    {
+        var terms = new (string Code, string Name, int Net, int? D1, decimal? P1, int? D2, decimal? P2)[]
+        {
+            ("N000", "Due immediately", 0, null, null, null, null),
+            ("N014", "Net 14 days", 14, null, null, null, null),
+            ("N030", "Net 30 days", 30, null, null, null, null),
+            ("N060", "Net 60 days", 60, null, null, null, null),
+            // The classic two-tier discount, and the reason CashDiscountPercentOn
+            // takes the tiers in order: on day 5 the 2% applies, not the 1%.
+            ("D210", "2% 10 days, 1% 20 days, net 30", 30, 10, 2m, 20, 1m),
+        };
+
+        foreach (var t in terms)
+        {
+            db.Add(new PaymentTerm
+            {
+                TenantId = _tenantId, Code = t.Code, Name = t.Name,
+                BaselineDateRule = BaselineDateRule.DocumentDate,
+                NetDays = t.Net,
+                CashDiscount1Days = t.D1, CashDiscount1Percent = t.P1,
+                CashDiscount2Days = t.D2, CashDiscount2Percent = t.P2,
+                CreatedBy = "SEED",
+            });
+        }
+    }
+
     private async Task SeedDocumentConfigurationAsync(
         OrgIds orgs, ChartOfAccountsIds coa, CancellationToken ct)
     {
+        SeedPaymentTerms();
+
         var documentTypes = new (string Code, string Name, string Range, string Types, bool Ic)[]
         {
             ("SA", "G/L account document", "01", "S", false),
