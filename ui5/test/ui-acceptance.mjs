@@ -369,6 +369,133 @@ await page.waitForSelector(ID('approvals', 'approvalsTable'), { timeout: 30000 }
 check('...so the inbox no longer carries it',
   await textDisappears(ID('approvals', 'approvalsTable'), 'KSS Thailand'));
 
+console.log('\n== The payment run, end to end in the browser ==');
+
+// The run is the transaction that moves the most money, and until this
+// increment it was the only approval path with no screen. Everything here is
+// done by clicking, including the parts that post to the ledger.
+await setUser('seed.accountant');
+await open('#/payment-runs');
+await page.waitForSelector(ID('paymentRuns', 'paymentRunsTable'), { timeout: 30000 });
+check('The payment runs are reachable without knowing an id',
+  await textAppears(ID('paymentRuns', 'paymentRunsTable'), '1000-'));
+
+// An invoice to pay, posted over the API — the journal screen is covered above
+// and re-covering it here would only make this slower. 2,500 clears the 1,000
+// USD release threshold on its own, so the run needs approval regardless of
+// what else happens to be open. At 300 it depended on leftovers from earlier
+// blocks, and the second consecutive run took the other branch.
+const invoice = await fetch(`${BASE}/api/v1/finance/journal-entries`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-S4HERP-User': 'seed.accountant' },
+  body: JSON.stringify({
+    companyCode: '1000', documentType: 'KR',
+    documentDate: '2026-05-02', postingDate: '2026-05-02',
+    currency: 'USD', reference: 'AP-UI',
+    lines: [
+      { postingKey: '40', amount: 2500.00, glAccount: '6000000000', costCenter: 'CC101000' },
+      { postingKey: '31', amount: 2500.00, businessPartner: '1000000002', paymentTerms: 'N014' }
+    ]
+  })
+});
+check('An invoice exists for the run to find', invoice.status === 201, String(invoice.status));
+
+await page.locator(ID('paymentRuns', 'paymentRunsCreateButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+const dialog = page.locator('.sapMDialog');
+await dialog.locator('input').nth(1).fill('2026-05-10');   // run date
+await dialog.locator('input').nth(2).fill('2026-05-31');   // items due by
+await dialog.locator('input').nth(6).fill('1000000002');   // one partner, to keep it small
+await page.locator(ID('paymentRuns', 'createRunConfirm')).click();
+
+await page.waitForURL(/#\/payment-runs\/1000-/, { timeout: 30000 });
+await page.waitForSelector(ID('paymentRun', 'paymentRunPayments'), { timeout: 30000 });
+check('Proposing opens the proposal itself, not a list',
+  await textAppears(ID('paymentRun', 'paymentRunPayments'), '1000000002'));
+check('...showing the run as proposed, nothing posted',
+  await textAppears(ID('paymentRun', 'paymentRunStatus'), 'Proposed'));
+
+// This partner has other open items falling due, so the run clears the release
+// threshold and the screen must offer Submit rather than Execute. Which button
+// appears is read from the run, not assumed: the amount depends on what else is
+// open, and a test that hard-codes it breaks whenever an earlier block changes.
+const submitVisible = await page.locator(ID('paymentRun', 'paymentRunSubmitButton')).isVisible();
+const executeVisible = await page.locator(ID('paymentRun', 'paymentRunExecuteButton')).isVisible();
+check('A run over the release threshold offers Submit, not Execute',
+  submitVisible && !executeVisible, `submit=${submitVisible} execute=${executeVisible}`);
+
+await page.locator(ID('paymentRun', 'paymentRunSubmitButton')).click();
+check('Submitting puts it in front of an approver',
+  await textAppears(ID('paymentRun', 'paymentRunStatus'), 'PendingApproval'));
+check('...and the approval trail appears on the same page',
+  await textAppears(ID('paymentRun', 'paymentRunSteps'), 'FI_APPROVER'));
+
+// The approve button is on screen for the accountant who raised the run, and
+// the server refuses. The refusal here is authority rather than maker-checker —
+// an accountant holds no W_APPROVE at all, and the run's amount is checked
+// against the approver's limit before the workflow is consulted. Maker-checker
+// on a payment run is proven in the API suite, by the one seeded role that
+// could otherwise self-release.
+await page.locator(ID('paymentRun', 'paymentRunApproveButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Releasing my own run.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+await page.waitForSelector('.sapMMessageBox', { state: 'visible', timeout: 30000 });
+check('The person who raised the run is refused, on screen, with a reason',
+  /authoris|authoriz|not permitted|W_APPROVE/i.test(
+    await page.locator('.sapMMessageBox').innerText()));
+await page.locator('.sapMMessageBox button').first().click();
+
+await setUser('seed.approver');
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector(ID('paymentRun', 'paymentRunApproveButton'), { timeout: 30000 });
+await page.locator(ID('paymentRun', 'paymentRunApproveButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Checked the payees and the exclusions.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+check('An approver releases it',
+  await textAppears(ID('paymentRun', 'paymentRunStatus'), 'Approved'));
+check('...which is release, not payment',
+  !(await textAppears(ID('paymentRun', 'paymentRunStatus'), 'Executed', 3000)));
+
+await setUser('seed.accountant');
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector(ID('paymentRun', 'paymentRunExecuteButton'), { timeout: 30000 });
+await page.locator(ID('paymentRun', 'paymentRunExecuteButton')).click();
+await page.waitForSelector('.sapMMessageBox', { state: 'visible', timeout: 15000 });
+const confirmText = await page.locator('.sapMMessageBox').innerText();
+check('...and executing says plainly that there is no undo',
+  /no undo/i.test(confirmText), confirmText.slice(0, 140));
+await page.locator('.sapMMessageBox button').first().click();
+
+check('Executing posts the payments',
+  await textAppears(ID('paymentRun', 'paymentRunStatus'), 'Executed'));
+
+// The bank file, from the same screen, by the two people entitled to each half.
+check('The executed run offers to generate its bank file',
+  await becomesVisible(ID('paymentRun', 'paymentRunGenerateFileButton')));
+await page.locator(ID('paymentRun', 'paymentRunGenerateFileButton')).click();
+check('...and generating it shows the file, hash and all',
+  await textAppears(ID('paymentRun', 'paymentRunFileMessageId'), '1000'));
+check('...with no copies taken yet',
+  await textAppears(ID('paymentRun', 'paymentRunFileCopies'), '0'));
+
+// The accountant who generated it may not take it away — S_EXPORT, held only by
+// treasury. The button is on screen for them; the server is what refuses.
+await page.locator(ID('paymentRun', 'paymentRunDownloadFileButton')).click();
+await page.waitForSelector('.sapMMessageBox', { state: 'visible', timeout: 15000 });
+check('The accountant is refused the file itself, on screen',
+  /not authorised|NOT_AUTHORIZED|authoris/i.test(
+    await page.locator('.sapMMessageBox').innerText()));
+await page.locator('.sapMMessageBox button').first().click();
+
+await setUser('seed.treasury');
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector(ID('paymentRun', 'paymentRunDownloadFileButton'), { timeout: 30000 });
+await page.locator(ID('paymentRun', 'paymentRunDownloadFileButton')).click();
+check('Treasury may, and the copy is counted',
+  await textAppears(ID('paymentRun', 'paymentRunFileCopies'), '1'));
+
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });
 await page.waitForSelector(ID('trialBalance', 'balanceTable'), { timeout: 30000 });

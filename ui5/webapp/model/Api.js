@@ -18,8 +18,11 @@ sap.ui.define([
             const settings = options || {};
             const context = settings.context || {};
 
+            // The payment file is XML, and everything else is JSON. Asking for
+            // JSON on the file would be a lie in the Accept header and a parse
+            // error in the response.
             const headers = {
-                "Accept": "application/json",
+                "Accept": settings.raw ? "*/*" : "application/json",
                 "X-S4HERP-User": context.userName || ""
             };
             if (settings.body) {
@@ -36,13 +39,21 @@ sap.ui.define([
             });
 
             const text = await response.text();
-            const payload = text ? JSON.parse(text) : null;
 
+            // A failure is RFC 7807 JSON whatever the request asked for, so the
+            // error path parses even when the success path would not.
             if (response.ok) {
-                return payload;
+                return settings.raw ? text : (text ? JSON.parse(text) : null);
             }
 
-            throw this._toError(response.status, payload);
+            let problem = null;
+            try {
+                problem = text ? JSON.parse(text) : null;
+            } catch {
+                problem = { detail: text || null };
+            }
+
+            throw this._toError(response.status, problem);
         },
 
         _toError(status, problem) {

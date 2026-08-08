@@ -16,7 +16,7 @@ sap.ui.define([
     const DESTINATIONS = {
         JournalEntry: "journalDisplay",
         PartnerBank: "bankChange",
-        PaymentRun: null
+        PaymentRun: "paymentRun"
     };
 
     /**
@@ -98,6 +98,11 @@ sap.ui.define([
 
             if (item.objectType === "PartnerBank") {
                 this.getRouter().navTo("bankChange", { requestId: item.objectId });
+                return;
+            }
+
+            if (item.objectType === "PaymentRun") {
+                this.getRouter().navTo("paymentRun", { runId: item.objectId });
                 return;
             }
 

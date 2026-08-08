@@ -92,6 +92,16 @@
           "pattern": "approvals/bank-change/{requestId}",
           "name": "bankChange",
           "target": "bankChange"
+        },
+        {
+          "pattern": "payment-runs",
+          "name": "paymentRuns",
+          "target": "paymentRuns"
+        },
+        {
+          "pattern": "payment-runs/{runId}",
+          "name": "paymentRun",
+          "target": "paymentRun"
         }
       ],
       "targets": {
@@ -123,6 +133,16 @@
         "bankChange": {
           "viewId": "bankChange",
           "viewName": "BankChange",
+          "viewLevel": 3
+        },
+        "paymentRuns": {
+          "viewId": "paymentRuns",
+          "viewName": "PaymentRuns",
+          "viewLevel": 2
+        },
+        "paymentRun": {
+          "viewId": "paymentRun",
+          "viewName": "PaymentRun",
           "viewLevel": 3
         }
       }

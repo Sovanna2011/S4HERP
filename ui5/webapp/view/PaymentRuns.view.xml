@@ -1,0 +1,61 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.PaymentRuns"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f">
+    <f:DynamicPage id="paymentRunsPage" headerExpanded="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title text="{i18n>paymentRunsTitle}"/></f:heading>
+                <f:actions>
+                    <Button id="paymentRunsCreateButton"
+                            text="{i18n>paymentRunsCreate}"
+                            type="Emphasized"
+                            press=".onCreate"/>
+                </f:actions>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                    <Button icon="sap-icon://refresh" press=".onRefresh" tooltip="{i18n>refresh}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <Text text="{i18n>paymentRunsDescription}"/>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <Table id="paymentRunsTable"
+                   items="{/runs}"
+                   noDataText="{i18n>paymentRunsEmpty}">
+                <columns>
+                    <Column><Text text="{i18n>paymentRunsRun}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>companyCode}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>runDate}"/></Column>
+                    <Column minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>paymentMethod}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>paymentRunsPayees}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>totalToPay}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>status}"/></Column>
+                </columns>
+                <items>
+                    <ColumnListItem type="Navigation" press=".onOpen">
+                        <cells>
+                            <ObjectIdentifier title="{runId}"
+                                              text="{= ${hasPaymentFile} ? ${i18n>paymentRunsFileGenerated} : '' }"/>
+                            <Text text="{companyCode}"/>
+                            <Text text="{runDate}"/>
+                            <Text text="{paymentMethod}"/>
+                            <Text text="{payeeCount}"/>
+                            <ObjectNumber number="{path: 'totalToPay', formatter: '.formatter.amount'}"
+                                          unit="{currency}"/>
+                            <ObjectStatus text="{status}"
+                                          state="{path: 'status', formatter: '.formatter.paymentRunStatusState'}"/>
+                        </cells>
+                    </ColumnListItem>
+                </items>
+            </Table>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

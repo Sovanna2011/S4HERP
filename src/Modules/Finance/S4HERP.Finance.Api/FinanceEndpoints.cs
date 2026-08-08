@@ -244,6 +244,19 @@ public static class FinanceEndpoints
 
         var runs = routes.MapGroup("/api/v1/finance/payment-runs").WithTags("Payments");
 
+        runs.MapGet("/", async (
+                string? companyCode, string? status, int? take,
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new ListPaymentRunsQuery
+                    {
+                        CompanyCode = companyCode,
+                        Status = status,
+                        Take = take ?? 50,
+                    }, ct)))
+            .WithName("ListPaymentRuns")
+            .WithSummary("Payment runs the caller may see, newest first.");
+
         runs.MapPost("/", async (
                 CreatePaymentProposalCommand command, IDispatcher dispatcher, CancellationToken ct) =>
             {

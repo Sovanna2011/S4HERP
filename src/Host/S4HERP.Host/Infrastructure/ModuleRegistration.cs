@@ -201,6 +201,9 @@ public static class ModuleRegistration
             IQueryHandler<GetPaymentRunQuery, PaymentProposalResult>,
             GetPaymentRunQueryHandler>();
         services.AddScoped<
+            IQueryHandler<ListPaymentRunsQuery, IReadOnlyList<PaymentRunSummary>>,
+            ListPaymentRunsQueryHandler>();
+        services.AddScoped<
             ICommandHandler<GeneratePaymentFileCommand, PaymentFileResult>,
             GeneratePaymentFileHandler>();
         services.AddScoped<

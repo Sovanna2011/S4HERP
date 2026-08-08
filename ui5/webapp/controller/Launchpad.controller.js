@@ -24,6 +24,10 @@ sap.ui.define([
         {
             key: "APPROVALS", name: "approvalsTile", transactionCode: "SBWP",
             module: "Workflow", icon: "sap-icon://approvals", route: "approvals"
+        },
+        {
+            key: "PAYMENT_RUNS", name: "paymentRunsTile", transactionCode: "F110",
+            module: "Finance", icon: "sap-icon://money-bills", route: "paymentRuns"
         }
     ];
 

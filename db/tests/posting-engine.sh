@@ -1406,6 +1406,57 @@ check "...decided by that other approver" 200 - \
 check "...confirmed" 200 - "$BASE/api/v1/approvals?objectType=PartnerBank" -H "$APPROVER"
 assert_body "...nothing left of that kind" '^\[\]$'
 
+echo
+echo "== Finding a payment run without knowing its id =="
+
+# Until now the only route to a run was its id, which meant the approvals inbox
+# or a note on somebody's desk. Fine for the run you were told about; useless
+# for "what did we pay last Tuesday".
+check "The runs are listable" 200 - "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT"
+assert_body "...naming the run" '"runId":"1000-'
+assert_body "...with what it would pay" '"totalToPay"'
+assert_body "...and how many payees, which the total alone does not say" '"payeeCount"'
+assert_body "...and whether its bank file exists, so the next click is knowable" \
+  '"hasPaymentFile":true'
+
+check "Filtering by status narrows it" 200 - \
+  "$BASE/api/v1/finance/payment-runs?status=Executed" -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q '"status":"Proposed"'; then
+  echo "  FAIL  the status filter is ignored"
+  FAILURES+=("run list filter"); fail=$((fail+1))
+else
+  echo "  PASS  ...to executed runs only"; pass=$((pass+1))
+fi
+
+# Discarded proposals are the absence of work, not work. Showing them by default
+# would bury the runs somebody still has to act on.
+check "Discarded proposals are hidden by default" 200 - \
+  "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q '"status":"Deleted"'; then
+  echo "  FAIL  discarded proposals clutter the default list"
+  FAILURES+=("deleted runs listed"); fail=$((fail+1))
+else
+  echo "  PASS  ...but askable for by name"; pass=$((pass+1))
+fi
+
+# Scoped to what the caller may see, rather than filtered after reading.
+check "The clerk sees only their own company code" 200 - \
+  "$BASE/api/v1/finance/payment-runs" -H "$CLERK"
+if printf '%s' "$LAST_BODY" | grep -q '"companyCode":"2000"'; then
+  echo "  FAIL  the list crosses a company code the clerk has no rights in"
+  FAILURES+=("run list scope"); fail=$((fail+1))
+else
+  echo "  PASS  ...not company code 2000, which they hold no authority in"; pass=$((pass+1))
+fi
+
+# The detail now carries its own approval trail, so a screen draws the page in
+# one round trip instead of two.
+check "A run carries its approval trail" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN" -H "$ACCOUNTANT"
+assert_body "...with the step that released it" '"approverRoleCode":"FI_APPROVER"'
+assert_body "...and who decided" '"decidedBy":"seed.approver"'
+assert_body "...and says an approval was required at all" '"approvalRequired":true'
+
 check "Trial balance still foots after bank maintenance" 200 - \
   "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
 DIFF10=$(json_field difference)

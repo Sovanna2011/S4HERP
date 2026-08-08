@@ -1,0 +1,204 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.PaymentRun"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns:form="sap.ui.layout.form">
+    <f:DynamicPage id="paymentRunPage" headerExpanded="true" showFooter="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title id="paymentRunTitle" text="{/runId}"/></f:heading>
+                <f:expandedContent>
+                    <ObjectStatus id="paymentRunStatus"
+                                  text="{/status}"
+                                  state="{path: '/status', formatter: '.formatter.paymentRunStatusState'}"/>
+                </f:expandedContent>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                    <Button icon="sap-icon://refresh" press=".onRefresh" tooltip="{i18n>refresh}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <form:SimpleForm editable="false" layout="ResponsiveGridLayout" columnsL="3" columnsM="2">
+                    <Label text="{i18n>companyCode}"/><Text text="{/companyCode}"/>
+                    <Label text="{i18n>runDate}"/><Text text="{/runDate}"/>
+                    <Label text="{i18n>dueBy}"/><Text text="{/dueBy}"/>
+                    <Label text="{i18n>paymentMethod}"/><Text text="{/paymentMethod}"/>
+                    <Label text="{i18n>payingAccount}"/><Text text="{/payingAccount}"/>
+                    <Label text="{i18n>totalToPay}"/>
+                    <ObjectNumber id="paymentRunTotal"
+                                  number="{path: '/totalToPay', formatter: '.formatter.amount'}"
+                                  unit="{/currency}"
+                                  emphasized="true"/>
+                </form:SimpleForm>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+          <VBox class="sapUiSmallMargin">
+            <Panel headerText="{i18n>paymentRunPayees}" expandable="false">
+                <content>
+                    <Table id="paymentRunPayments"
+                           items="{/payments}"
+                           noDataText="{i18n>paymentRunNothingToPay}">
+                        <columns>
+                            <Column><Text text="{i18n>businessPartner}"/></Column>
+                            <Column hAlign="End"><Text text="{i18n>paymentRunItems}"/></Column>
+                            <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true">
+                                <Text text="{i18n>paymentRunDocument}"/>
+                            </Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <ObjectIdentifier title="{businessPartner}"/>
+                                    <Text text="{itemCount}"/>
+                                    <ObjectNumber number="{path: 'amount', formatter: '.formatter.amount'}"
+                                                  unit="{/currency}"/>
+                                    <Text text="{paymentDocumentNumber}"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+
+            <!-- Exclusions are the half of a proposal people forget to look at,
+                 and the reason each one was left out is the whole content of the
+                 review. Always visible, never behind a toggle. -->
+            <Panel id="paymentRunExclusionsPanel"
+                   class="sapUiSmallMarginTop"
+                   headerText="{i18n>paymentRunExcluded}"
+                   expandable="false"
+                   visible="{= ${/excluded}.length > 0 }">
+                <content>
+                    <Table id="paymentRunExclusions" items="{/excluded}">
+                        <columns>
+                            <Column><Text text="{i18n>businessPartner}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true">
+                                <Text text="{i18n>paymentRunDocument}"/>
+                            </Column>
+                            <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
+                            <Column><Text text="{i18n>paymentRunExclusionReason}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <Text text="{businessPartner}"/>
+                                    <Text text="{fiscalYear}/{documentNumber}/{lineNumber}"/>
+                                    <ObjectNumber number="{path: 'amount', formatter: '.formatter.amount'}"
+                                                  unit="{/currency}"
+                                                  state="None"/>
+                                    <Text text="{reason}"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+
+            <Panel id="paymentRunWorkflow"
+                   class="sapUiSmallMarginTop"
+                   headerText="{i18n>approvalHistory}"
+                   expandable="true"
+                   expanded="true"
+                   visible="{= ${/approvalSteps}.length > 0 }">
+                <content>
+                    <Table id="paymentRunSteps" items="{/approvalSteps}">
+                        <columns>
+                            <Column width="4rem"><Text text="{i18n>step}"/></Column>
+                            <Column><Text text="{i18n>approverRole}"/></Column>
+                            <Column><Text text="{i18n>decision}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>decidedBy}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>comment}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <Text text="{sequence}"/>
+                                    <Text text="{approverRoleCode}"/>
+                                    <ObjectStatus text="{decision}"
+                                                  state="{path: 'decision', formatter: '.formatter.stepDecisionState'}"/>
+                                    <Text text="{decidedBy}"/>
+                                    <Text text="{comment}"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+
+            <!-- The bank file, once the run has been executed. Metadata only:
+                 the account numbers are in the file, and the file is behind
+                 S_EXPORT. -->
+            <Panel id="paymentRunFilePanel"
+                   class="sapUiSmallMarginTop"
+                   headerText="{i18n>paymentRunFile}"
+                   expandable="false"
+                   visible="{= !!${file>/messageId} }">
+                <content>
+                    <form:SimpleForm editable="false" layout="ResponsiveGridLayout" columnsL="2" columnsM="1">
+                        <Label text="{i18n>paymentFileMessageId}"/><Text id="paymentRunFileMessageId" text="{file>/messageId}"/>
+                        <Label text="{i18n>paymentFileFormat}"/><Text text="{file>/format}"/>
+                        <Label text="{i18n>paymentFileTransactions}"/><Text text="{file>/transactionCount}"/>
+                        <Label text="{i18n>paymentFileControlSum}"/>
+                        <Text text="{path: 'file>/controlSum', formatter: '.formatter.amount'} {file>/currency}"/>
+                        <Label text="{i18n>paymentFileHash}"/><Text text="{file>/contentSha256}"/>
+                        <Label text="{i18n>paymentFileCopies}"/><Text id="paymentRunFileCopies" text="{file>/downloadCount}"/>
+                    </form:SimpleForm>
+                </content>
+            </Panel>
+          </VBox>
+        </f:content>
+
+        <f:footer>
+            <!-- Every button the run's state allows is shown to everybody. The
+                 server decides who may press it, and hiding a control because
+                 the caller lacks the right teaches them the button does not
+                 exist rather than that they are not authorised (§22.1). -->
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="paymentRunDeleteButton"
+                        text="{i18n>discard}"
+                        type="Transparent"
+                        visible="{= ${/status} === 'Proposed' }"
+                        press=".onDelete"/>
+                <Button id="paymentRunSubmitButton"
+                        text="{i18n>submitForApproval}"
+                        type="Emphasized"
+                        visible="{= ${/status} === 'Proposed' &amp;&amp; ${/approvalRequired} }"
+                        press=".onSubmit"/>
+                <Button id="paymentRunRejectButton"
+                        text="{i18n>reject}"
+                        type="Reject"
+                        visible="{= ${/status} === 'PendingApproval' }"
+                        press=".onReject"/>
+                <Button id="paymentRunApproveButton"
+                        text="{i18n>approve}"
+                        type="Accept"
+                        visible="{= ${/status} === 'PendingApproval' }"
+                        press=".onApprove"/>
+                <Button id="paymentRunExecuteButton"
+                        text="{i18n>paymentRunExecute}"
+                        type="Emphasized"
+                        visible="{= ${/status} === 'Approved'
+                                  || (${/status} === 'Proposed' &amp;&amp; !${/approvalRequired}) }"
+                        press=".onExecute"/>
+                <Button id="paymentRunGenerateFileButton"
+                        text="{i18n>paymentRunGenerateFile}"
+                        type="Emphasized"
+                        visible="{= ${/status} === 'Executed' &amp;&amp; !${file>/messageId} }"
+                        press=".onGenerateFile"/>
+                <Button id="paymentRunDownloadFileButton"
+                        text="{i18n>paymentRunDownloadFile}"
+                        type="Default"
+                        visible="{= !!${file>/messageId} }"
+                        press=".onDownloadFile"/>
+            </OverflowToolbar>
+        </f:footer>
+    </f:DynamicPage>
+</mvc:View>

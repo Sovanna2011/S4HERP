@@ -63,6 +63,23 @@ sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
             }
         },
 
+        /**
+         * A payment run's lifecycle, which is longer than a document's: Proposed
+         * is neutral because nothing has happened yet, PendingApproval is a
+         * warning because somebody is being waited on, and Executed is the only
+         * success — money has actually moved.
+         */
+        paymentRunStatusState(status) {
+            switch (status) {
+                case "Executed": return "Success";
+                case "Approved": return "Success";
+                case "PendingApproval": return "Warning";
+                case "Rejected": return "Error";
+                case "Deleted": return "None";
+                default: return "Information";
+            }
+        },
+
         stepDecisionState(decision) {
             switch (decision) {
                 case "Approved": return "Success";

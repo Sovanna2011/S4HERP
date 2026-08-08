@@ -15,11 +15,12 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 8](docs/phase3/increment-8-payment-file.md) | Delivered. ISO 20022 pain.001 payment file, S_EXPORT on the download, bank details in the proposal |
 | 3 — [Increment 9](docs/phase3/increment-9-partner-bank-maintenance.md) | Delivered. Partner bank maintenance under maker-checker; the approval engine generalised beyond financial documents |
 | 3 — [Increment 10](docs/phase3/increment-10-approvals-inbox.md) | Delivered. One approvals inbox across all object types, and the bank change approval screen |
+| 3 — [Increment 11](docs/phase3/increment-11-payment-run-screen.md) | Delivered. The payment run on a screen: propose, submit, approve, execute, generate and download the bank file |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**380 automated checks passing** across four suites, against the container image.
-Modules still to build — the payment run screen, bank status reports, dunning,
+**412 automated checks passing** across four suites, against the container image.
+Modules still to build — bank status reports (pain.002 / camt.053), dunning,
 Asset Accounting, Controlling allocations, SE11 and SE16N — are designed in the
 blueprint and listed in each phase report.
 
@@ -52,8 +53,8 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 321 posting-engine checks over HTTP
-node ui5/test/ui-acceptance.mjs                  # 40 browser checks
+./db/tests/posting-engine.sh                     # 336 posting-engine checks over HTTP
+node ui5/test/ui-acceptance.mjs                  # 57 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
 
@@ -153,7 +154,8 @@ Compose composes from the variables above. Set
 | `POST` | `/api/v1/finance/payments/{cc}/{year}/{no}/reset-clearing` | Reopen the items a payment cleared (FBRA) |
 | `GET` | `/api/v1/finance/open-items` | Open items with aging (FBL5N / FBL1N) |
 | `POST` | `/api/v1/finance/payment-runs` | Propose a payment run (F110); posts nothing |
-| `GET` | `/api/v1/finance/payment-runs/{runId}` | The proposal, its payments and its exclusions |
+| `GET` | `/api/v1/finance/payment-runs` | Runs the caller may see, newest first. Optional `?companyCode=`, `?status=`, `?take=` |
+| `GET` | `/api/v1/finance/payment-runs/{runId}` | The proposal, its payments, its exclusions and its approval trail |
 | `POST` | `/api/v1/finance/payment-runs/{runId}/submit` | Send the proposal for approval |
 | `POST` | `/api/v1/finance/payment-runs/{runId}/approve` | Approve the caller's step; the last one releases the run |
 | `POST` | `/api/v1/finance/payment-runs/{runId}/reject` | Reject the run, with a mandatory reason |

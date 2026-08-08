@@ -105,6 +105,51 @@ public sealed record PaymentProposalResult
 
     public required decimal TotalToPay { get; init; }
     public required string Currency { get; init; }
+
+    /// <summary>
+    /// The approval trail, where the run has one. Carried on the detail rather
+    /// than behind a second route because a screen showing a run always wants
+    /// both, and two round trips to draw one page is a race waiting to happen —
+    /// which is exactly what the approvals screen taught in increment 10.
+    /// </summary>
+    public IReadOnlyList<ApprovalStepView> ApprovalSteps { get; init; } = [];
+
+    /// <summary>
+    /// Whether an approval is configured for a run of this size. Lets the screen
+    /// offer Submit or Execute correctly instead of offering both and letting the
+    /// server refuse one — the refusal is right, but a button that always fails
+    /// is not a design.
+    /// </summary>
+    public bool ApprovalRequired { get; init; }
+}
+
+/// <summary>One line of the payment run list.</summary>
+public sealed record PaymentRunSummary(
+    string RunId,
+    string CompanyCode,
+    string Status,
+    DateOnly RunDate,
+    DateOnly DueBy,
+    string PaymentMethod,
+    int PayeeCount,
+    decimal TotalToPay,
+    string Currency,
+    bool HasPaymentFile);
+
+/// <summary>
+/// Runs the caller may see, newest first. Without this the only way to reach a
+/// run was to already know its id, which meant the approvals inbox or a note on
+/// a desk.
+/// </summary>
+[RequiresAuthorization("F_BKPF_BUK", "03")]
+public sealed record ListPaymentRunsQuery : IQuery<IReadOnlyList<PaymentRunSummary>>
+{
+    public string? CompanyCode { get; init; }
+
+    /// <summary>Omitted returns every status except deleted proposals.</summary>
+    public string? Status { get; init; }
+
+    public int Take { get; init; } = 50;
 }
 
 public sealed record ProposedPayment(
@@ -762,7 +807,7 @@ public sealed class PaymentRunApprovalHandlers(
 }
 
 public sealed class GetPaymentRunQueryHandler(
-    S4herpDbContext db, IAuthorizationEnforcer authorization)
+    S4herpDbContext db, IAuthorizationEnforcer authorization, IApprovalService approvals)
     : IQueryHandler<GetPaymentRunQuery, PaymentProposalResult>
 {
     public async Task<PaymentProposalResult> HandleAsync(
@@ -780,6 +825,100 @@ public sealed class GetPaymentRunQueryHandler(
         var currency = await db.Set<Currency>()
             .Where(c => c.Id == account.CurrencyId).Select(c => c.Code).SingleAsync(ct);
 
-        return CreatePaymentProposalHandler.Project(run, companyCode.Code, account, currency);
+        var projected = CreatePaymentProposalHandler.Project(
+            run, companyCode.Code, account, currency);
+
+        var state = await approvals.GetAsync(PaymentRunApproval.ObjectType, run.RunId, ct);
+
+        // Asked of the same matcher the submit path uses, so the screen and the
+        // server cannot disagree about whether this run needs a signature.
+        var required = await approvals.IsApprovalRequiredAsync(
+            PaymentRunApproval.ObjectType, run.CompanyCodeId, null,
+            projected.TotalToPay, companyCode.LocalCurrencyId, ct);
+
+        return projected with
+        {
+            ApprovalSteps = state?.Steps ?? [],
+            ApprovalRequired = required,
+        };
+    }
+}
+
+public sealed class ListPaymentRunsQueryHandler(
+    S4herpDbContext db, IAuthorizationEnforcer authorization)
+    : IQueryHandler<ListPaymentRunsQuery, IReadOnlyList<PaymentRunSummary>>
+{
+    public async Task<IReadOnlyList<PaymentRunSummary>> HandleAsync(
+        ListPaymentRunsQuery query, CancellationToken ct)
+    {
+        // Scoped to what the caller may see rather than filtered afterwards: a
+        // list that fetches everything and hides some of it has already read it.
+        var companyCodes = await authorization.AuthorizedCompanyCodeIdsAsync(ct);
+
+        var runs = db.Set<PaymentRun>()
+            .AsNoTracking()
+            .Where(r => companyCodes.Contains(r.CompanyCodeId));
+
+        if (query.CompanyCode is { Length: > 0 } code)
+        {
+            runs = runs.Where(r => r.CompanyCode.Code == code);
+        }
+
+        if (query.Status is { Length: > 0 } status
+            && Enum.TryParse<PaymentRunStatus>(status, ignoreCase: true, out var parsed))
+        {
+            runs = runs.Where(r => r.Status == parsed);
+        }
+        else
+        {
+            // A discarded proposal is not work; it is the absence of work. Showing
+            // them by default would bury the runs somebody still has to act on.
+            runs = runs.Where(r => r.Status != PaymentRunStatus.Deleted);
+        }
+
+        var rows = await runs
+            .OrderByDescending(r => r.RunDate).ThenByDescending(r => r.RunId)
+            .Take(Math.Clamp(query.Take, 1, 200))
+            .Select(r => new
+            {
+                r.RunId,
+                CompanyCode = r.CompanyCode.Code,
+                r.Status,
+                r.RunDate,
+                r.DueBy,
+                r.PaymentMethodCode,
+                PayeeCount = r.Items
+                    .Where(i => !i.IsExcluded).Select(i => i.BusinessPartnerId).Distinct().Count(),
+                Total = r.Items.Where(i => !i.IsExcluded).Sum(i => (decimal?)i.Amount) ?? 0m,
+                // HouseBankAccount carries a CurrencyId and no navigation to
+                // Currency, so the code is resolved separately rather than by
+                // adding a navigation property this is the only caller for.
+                r.HouseBankAccount.CurrencyId,
+                // Shown in the list because "has the file already been generated"
+                // decides whether the next click is Generate or Download, and
+                // generating a second file is refused for good reason.
+                HasPaymentFile = db.Set<PaymentFile>().Any(f => f.PaymentRunId == r.Id),
+            })
+            .ToListAsync(ct);
+
+        var currencyIds = rows.Select(r => r.CurrencyId).Distinct().ToList();
+        var currencies = await db.Set<Currency>()
+            .AsNoTracking()
+            .Where(c => currencyIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Code, ct);
+
+        return rows
+            .Select(r => new PaymentRunSummary(
+                r.RunId,
+                r.CompanyCode,
+                r.Status.ToString(),
+                r.RunDate,
+                r.DueBy,
+                r.PaymentMethodCode,
+                r.PayeeCount,
+                r.Total,
+                currencies.GetValueOrDefault(r.CurrencyId, "?"),
+                r.HasPaymentFile))
+            .ToList();
     }
 }
