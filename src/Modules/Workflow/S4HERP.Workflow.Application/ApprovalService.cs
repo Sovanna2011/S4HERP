@@ -224,6 +224,27 @@ public sealed class ApprovalService(
         };
     }
 
+    public async Task<bool> IsApprovalRequiredAsync(
+        string objectType, long companyCodeId, string? documentTypeCode,
+        decimal amount, long currencyId, CancellationToken cancellationToken = default)
+    {
+        // Deliberately the same matcher the real start uses. Two implementations
+        // of "does this need approving" would eventually disagree, and the way
+        // you would find out is something being released unapproved.
+        var matches = await MatchRulesAsync(new StartApprovalRequest
+        {
+            ObjectType = objectType,
+            ObjectId = string.Empty,
+            CompanyCodeId = companyCodeId,
+            DocumentTypeCode = documentTypeCode,
+            Amount = amount,
+            CurrencyId = currencyId,
+            ObjectCreatedBy = string.Empty,
+        }, cancellationToken);
+
+        return matches.Count > 0;
+    }
+
     public async Task<WorkflowStateView?> GetAsync(
         string objectType, string objectId, CancellationToken cancellationToken = default)
     {
@@ -312,6 +333,7 @@ public sealed class ApprovalService(
             .AsNoTracking()
             .Where(r => r.IsActive
                         && r.ValidFrom <= today && r.ValidTo > today
+                        && (r.ObjectType == null || r.ObjectType == request.ObjectType)
                         && (r.CompanyCodeId == null || r.CompanyCodeId == request.CompanyCodeId)
                         && (r.DocumentTypeCode == null
                             || r.DocumentTypeCode == request.DocumentTypeCode)

@@ -11,10 +11,11 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 4](docs/phase3/increment-4-lifecycle.md) | Delivered. Withdraw, discard, approvals inbox and the approval screens |
 | 3 — [Increment 5](docs/phase3/increment-5-ar-ap.md) | Delivered. Payment terms, due dates, payments, clearing, reset, open items and aging |
 | 3 — [Increment 6](docs/phase3/increment-6-payment-run.md) | Delivered. House banks, payment methods and the payment run (F110) |
+| 3 — [Increment 7](docs/phase3/increment-7-payment-run-approval.md) | Delivered. Approval on the payment run: release threshold, maker-checker, execution gate |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**208 automated checks passing** across four suites, against the container image.
+**234 automated checks passing** across four suites, against the container image.
 Modules still to build — the payment file and dunning, Asset Accounting,
 Controlling allocations, SE11 and SE16N — are designed in the blueprint and
 listed in each phase report.
@@ -48,7 +49,7 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 162 posting-engine checks over HTTP
+./db/tests/posting-engine.sh                     # 188 posting-engine checks over HTTP
 node ui5/test/ui-acceptance.mjs                  # 27 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
@@ -131,7 +132,7 @@ Compose composes from the variables above. Set
 | --- | --- | --- |
 | `GET` | `/` | Service banner |
 | `GET` | `/health/live` | Liveness — the process is up |
-| `GET` | `/health/ready` | Readiness — SQL Server reachable and the schema current |
+| `GET` | `/health/ready` | Readiness — SQL Server reachable and the schema current. What the container health check probes, so `healthy` means usable and not merely listening |
 | `POST` | `/api/v1/finance/journal-entries` | Post an accounting document (FB50) |
 | `POST` | `/api/v1/finance/journal-entries/simulate` | Full accounting impact without posting |
 | `GET` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}` | Display a document (FB03) |
@@ -249,7 +250,9 @@ scaffolding a migration works with no database running.
 - The API image runs as the non-root `app` user from the .NET base image and
   listens on port 8080 inside the container.
 - The runtime image ships without `curl`, so the container `HEALTHCHECK`
-  re-invokes the app binary with `--healthcheck` instead.
+  re-invokes the app binary with `--healthcheck` instead. It probes readiness,
+  and the start period is 180s because on a fresh volume that window has to
+  cover migrations, the post-migration scripts and the sample seed.
 - Compose gates API startup on the database's health check, and the migration
   step retries with backoff, so a slow SQL Server start will not crash-loop the
   API.

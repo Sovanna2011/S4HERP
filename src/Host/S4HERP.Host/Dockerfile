@@ -90,7 +90,12 @@ COPY db/scripts ./db/scripts
 USER $APP_UID
 EXPOSE 8080
 
-HEALTHCHECK --interval=15s --timeout=10s --start-period=20s --retries=5 \
+# The probe asks for readiness, so the start period has to cover the whole of
+# first-run setup: migrations, the post-migration scripts and, in Development,
+# the sample seed. 20s covered process start and nothing else. Failures inside
+# the start period do not mark the container unhealthy, so a generous window
+# costs only how long a genuinely broken container takes to be called broken.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=180s --retries=5 \
     CMD ["dotnet", "S4HERP.Host.dll", "--healthcheck"]
 
 ENTRYPOINT ["dotnet", "S4HERP.Host.dll"]

@@ -22,6 +22,25 @@ if command -v flock >/dev/null 2>&1 && ! flock -n 9; then
   echo "Refusing to start: the trial-balance delta checks would fail for no reason."
   exit 2
 fi
+# Wait for readiness, not for the port to answer. On a fresh volume the host
+# starts listening, then migrates, then seeds; a suite that starts in that window
+# gets 403 on every request because no role has been granted yet, and reports
+# ~170 failures that have nothing to do with the code. Observed exactly that.
+printf 'Waiting for %s/health/ready' "$BASE"
+for _ in $(seq 1 60); do
+  if [ "$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$BASE/health/ready")" = "200" ]; then
+    READY=1; break
+  fi
+  printf '.'; sleep 5
+done
+echo
+if [ "${READY:-0}" != "1" ]; then
+  echo "Not ready after five minutes. Refusing to run: every check would fail for"
+  echo "the same reason and none of the failures would mean anything."
+  echo "Try: docker compose logs api"
+  exit 2
+fi
+
 ACCOUNTANT='X-S4HERP-User: seed.accountant'
 CLERK='X-S4HERP-User: seed.clerk'
 AUDITOR='X-S4HERP-User: seed.auditor'
@@ -776,7 +795,16 @@ TB_AFTER_PROPOSAL=$(json_field totalDebit)
 
 echo "== Payment run: execution =="
 
-check "Executing posts the payments" 200 - \
+# 300 USD is below the seeded release threshold of 1,000. Submitting it is not a
+# no-op that quietly succeeds: it answers NotRequired and leaves the run Proposed,
+# which is the branch that says "configuration asked for nobody" rather than
+# "somebody approved". Executing then works with no signature at all.
+check "Submitting a run below the release threshold asks nobody" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$RUNID/submit" -H "$ACCOUNTANT"
+assert_body "...it stays Proposed and reports NotRequired" \
+  '"status":"Proposed".*"approvalOutcome":"NotRequired"'
+
+check "A run below the release threshold executes unapproved" 200 - \
   -X POST "$BASE/api/v1/finance/payment-runs/$RUNID/execute" -H "$ACCOUNTANT"
 assert_body "...one document per partner" '"status":"Executed".*"paymentsPosted":1'
 
@@ -840,6 +868,109 @@ assert_body "...and is kept as evidence of what was considered" '"status":"Delet
 
 check "An unknown run is not found" 404 NOT_FOUND \
   "$BASE/api/v1/finance/payment-runs/nonexistent-run" -H "$ACCOUNTANT"
+
+echo "== Payment run approval =="
+
+# 12,000 USD, comfortably over the 1,000 release threshold and comfortably under
+# the approver's 50,000 limit, so the run that pays it needs exactly one signature.
+check "A second vendor invoice posts" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","documentType":"KR","documentDate":"2026-04-01",
+       "postingDate":"2026-04-01","currency":"USD","reference":"AP-APPR",
+       "lines":[
+         {"postingKey":"40","amount":12000.00,"glAccount":"6000000000","costCenter":"CC101000"},
+         {"postingKey":"31","amount":12000.00,"businessPartner":"1000000002","paymentTerms":"N014"}]}'
+
+# Proposed by the supervisor, not the accountant. The supervisor is the seeded
+# role that both prepares and approves, so a refusal to self-approve is
+# maker-checker doing its job and not an authorisation failure wearing its
+# clothes — the accountant holds no W_APPROVE at all and would be turned away
+# at the pipeline with NOT_AUTHORIZED, proving nothing.
+check "A proposal is created" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$SUPERVISOR" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-21","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN"}'
+APPRUN=$(json_field runId)
+
+# The control that matters: a run cannot route around approval by never being
+# submitted. Execute asks the same rule matcher the submit path uses.
+check "An unapproved run cannot be executed" 422 PAYMENT_RUN_NEEDS_APPROVAL \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/execute" -H "$ACCOUNTANT"
+
+check "Deciding before submission is refused" 422 PAYMENT_RUN_NOT_AWAITING_APPROVAL \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/approve" -H "$APPROVER" -H "$JSON" -d '{}'
+
+check "Submitting opens an approval" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/submit" -H "$SUPERVISOR"
+assert_body "...the run is now PendingApproval" \
+  '"status":"PendingApproval".*"approvalOutcome":"Pending"'
+
+check "...and it still cannot be executed" 422 PAYMENT_RUN_NOT_PROPOSED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/execute" -H "$ACCOUNTANT"
+
+check "The maker cannot approve their own run" 422 MAKER_CHECKER_VIOLATION \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/approve" \
+  -H "$SUPERVISOR" -H "$JSON" -d '{"comment":"Mine, looks fine."}'
+
+check "Someone without the approver role is refused" 403 NOT_AUTHORIZED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/approve" -H "$CLERK" -H "$JSON" -d '{}'
+
+check "The run appears in the approver's inbox" 200 - \
+  "$BASE/api/v1/finance/approvals" -H "$APPROVER"
+# The inbox is filtered to JournalEntry, so a PaymentRun must NOT be there —
+# proof the object type actually narrows rather than decorating.
+if printf '%s' "$LAST_BODY" | grep -q "$APPRUN"; then
+  echo "  FAIL  the journal inbox listed a payment run"; FAILURES+=("inbox scope"); fail=$((fail+1))
+else
+  echo "  PASS  ...no: the journal inbox is scoped to journal entries"; pass=$((pass+1))
+fi
+
+check "The approver releases the run" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/approve" \
+  -H "$APPROVER" -H "$JSON" -d '{"comment":"Checked the proposal."}'
+assert_body "...to Approved, not paid" '"status":"Approved".*"approvalOutcome":"Approved"'
+
+check "An approved run executes" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/execute" -H "$ACCOUNTANT"
+assert_body "...posting the payments" '"status":"Executed".*"paymentsPosted":1'
+
+echo "== Payment run rejection =="
+
+check "A third vendor invoice posts" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","documentType":"KR","documentDate":"2026-04-02",
+       "postingDate":"2026-04-02","currency":"USD","reference":"AP-REJ",
+       "lines":[
+         {"postingKey":"40","amount":9000.00,"glAccount":"6000000000","costCenter":"CC101000"},
+         {"postingKey":"31","amount":9000.00,"businessPartner":"1000000002","paymentTerms":"N014"}]}'
+
+check "It is proposed and submitted" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-22","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN"}'
+REJRUN=$(json_field runId)
+check "...submitted" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$REJRUN/submit" -H "$ACCOUNTANT"
+
+check "Rejection without a reason is refused" 422 REJECTION_COMMENT_REQUIRED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$REJRUN/reject" -H "$APPROVER" -H "$JSON" -d '{}'
+
+check "Rejection with a reason is recorded" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$REJRUN/reject" \
+  -H "$APPROVER" -H "$JSON" -d '{"comment":"Pay these next week."}'
+assert_body "...and the run reads Rejected" '"status":"Rejected".*"approvalOutcome":"Rejected"'
+
+check "A rejected run cannot be executed" 422 PAYMENT_RUN_NOT_PROPOSED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$REJRUN/execute" -H "$ACCOUNTANT"
+
+check "Trial balance still foots after approved and rejected runs" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF8=$(json_field difference)
+if [ -n "$DIFF8" ] && awk -v d="$DIFF8" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...difference $DIFF8"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF8:-missing}"; FAILURES+=("post-approval balance"); fail=$((fail+1))
+fi
 
 echo
 printf '%s/%s passed\n' "$pass" "$((pass+fail))"

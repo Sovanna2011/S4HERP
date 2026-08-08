@@ -259,6 +259,32 @@ public static class FinanceEndpoints
             .WithName("GetPaymentRun")
             .WithSummary("A payment run, its proposed payments and its exclusions.");
 
+        runs.MapPost("/{runId}/submit", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new SubmitPaymentRunCommand { RunId = runId }, ct)))
+            .WithName("SubmitPaymentRun")
+            .WithSummary("Send a proposal for approval.");
+
+        runs.MapPost("/{runId}/approve", async (
+                string runId, ApprovalDecisionBody? body,
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new ApprovePaymentRunCommand { RunId = runId, Comment = body?.Comment }, ct)))
+            .WithName("ApprovePaymentRun")
+            .WithSummary("Approve the caller's step; the last one releases the run.");
+
+        runs.MapPost("/{runId}/reject", async (
+                string runId, ApprovalDecisionBody? body,
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(new RejectPaymentRunCommand
+                {
+                    RunId = runId,
+                    Comment = body?.Comment ?? string.Empty,
+                }, ct)))
+            .WithName("RejectPaymentRun")
+            .WithSummary("Reject the run, with a mandatory reason.");
+
         runs.MapPost("/{runId}/execute", async (
                 string runId, IDispatcher dispatcher, CancellationToken ct) =>
                 Results.Ok(await dispatcher.SendAsync(

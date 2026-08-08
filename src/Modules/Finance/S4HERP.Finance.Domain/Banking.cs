@@ -53,6 +53,9 @@ public enum PaymentRunStatus
     Proposed = 1,
     Executed = 2,
     Deleted = 3,
+    PendingApproval = 4,
+    Approved = 5,
+    Rejected = 6,
 }
 
 /// <summary>

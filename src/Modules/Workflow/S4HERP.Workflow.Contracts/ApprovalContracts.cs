@@ -40,6 +40,15 @@ public interface IApprovalService
         string objectType, string objectId, string? comment,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Whether any rule would govern an object of this shape. Lets a caller
+    /// refuse to act unapproved without duplicating the rule matching, which is
+    /// the only place it should live.
+    /// </summary>
+    Task<bool> IsApprovalRequiredAsync(
+        string objectType, long companyCodeId, string? documentTypeCode,
+        decimal amount, long currencyId, CancellationToken cancellationToken = default);
+
     /// <summary>The most recent workflow for an object, decided or not.</summary>
     Task<WorkflowStateView?> GetAsync(
         string objectType, string objectId, CancellationToken cancellationToken = default);

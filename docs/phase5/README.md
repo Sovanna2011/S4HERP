@@ -9,10 +9,10 @@ setup, and the operational guides below.
 | --- | --- | --- |
 | Architecture (5 checks) | Module boundaries, domain purity, schema ownership, concurrency tokens, tenant filters | `tests/S4HERP.ArchitectureTests` |
 | Database integrity (14 checks) | The §23 rules the database itself must enforce | `db/tests/integrity-rules.sql` |
-| Posting engine (162 checks) | The §23 rules the engine enforces, over HTTP, including the approval workflow | `db/tests/posting-engine.sh` |
+| Posting engine (188 checks) | The §23 rules the engine enforces, over HTTP, including the approval workflow | `db/tests/posting-engine.sh` |
 | Browser acceptance (27 checks) | The UI journeys, in Chromium against the real API | `ui5/test/ui-acceptance.mjs` |
 
-**208 automated checks**, all passing. Every one asserts a *specific* outcome —
+**234 automated checks**, all passing. Every one asserts a *specific* outcome —
 an error number, an HTTP status plus application error code, a rendered value —
 rather than "it didn't fail". That distinction caught two false green runs during
 development and is worth keeping.
@@ -25,7 +25,7 @@ docker compose up -d --build                      # stack, schema, seed data
 #   npm --prefix ui5 install && npm --prefix ui5 run build
 #   docker compose build --build-arg UI_SOURCE=prebuilt
 
-./db/tests/posting-engine.sh                      # 162 posting-engine checks
+./db/tests/posting-engine.sh                      # 188 posting-engine checks
 node ui5/test/ui-acceptance.mjs                   # 27 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests   # 5 architecture checks
 

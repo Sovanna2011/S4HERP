@@ -3,6 +3,7 @@ using S4HERP.BuildingBlocks.Application;
 using S4HERP.BuildingBlocks.Infrastructure;
 using S4HERP.Finance.Domain;
 using S4HERP.Organization.Domain;
+using S4HERP.Workflow.Contracts;
 
 namespace S4HERP.Finance.Application;
 
@@ -32,6 +33,40 @@ public sealed record CreatePaymentProposalCommand : ICommand<PaymentProposalResu
 
     /// <summary>Optional: restrict the run to one partner.</summary>
     public string? BusinessPartner { get; init; }
+}
+
+/// <summary>
+/// Sends a proposal for approval. A payment run is where maker-checker earns its
+/// keep more than anywhere else in the system: it is the one transaction that
+/// moves money out of the company in bulk.
+/// </summary>
+[RequiresAuthorization("F_BKPF_BUK", "01")]
+public sealed record SubmitPaymentRunCommand : ICommand<PaymentRunApprovalResult>
+{
+    public required string RunId { get; init; }
+}
+
+/// <summary>Approves the caller's step. The last one releases the run for execution.</summary>
+public sealed record ApprovePaymentRunCommand : ICommand<PaymentRunApprovalResult>
+{
+    public required string RunId { get; init; }
+    public string? Comment { get; init; }
+}
+
+/// <summary>Rejects the run. The reason is mandatory.</summary>
+public sealed record RejectPaymentRunCommand : ICommand<PaymentRunApprovalResult>
+{
+    public required string RunId { get; init; }
+    public required string Comment { get; init; }
+}
+
+public sealed record PaymentRunApprovalResult
+{
+    public required string RunId { get; init; }
+    public required string Status { get; init; }
+    public required string ApprovalOutcome { get; init; }
+    public required decimal TotalToPay { get; init; }
+    public required IReadOnlyList<ApprovalStepView> Steps { get; init; }
 }
 
 /// <summary>Posts the proposal. One payment document per partner.</summary>
@@ -106,6 +141,13 @@ internal static class PaymentRunErrors
     public const string NothingToPay = "PAYMENT_RUN_EMPTY";
     public const string UnknownMethod = "UNKNOWN_PAYMENT_METHOD";
     public const string UnknownAccount = "UNKNOWN_HOUSE_BANK_ACCOUNT";
+    public const string NeedsApproval = "PAYMENT_RUN_NEEDS_APPROVAL";
+    public const string NotAwaitingApproval = "PAYMENT_RUN_NOT_AWAITING_APPROVAL";
+}
+
+internal static class PaymentRunApproval
+{
+    public const string ObjectType = "PaymentRun";
 }
 
 // ----------------------------------------------------------------- proposal
@@ -338,6 +380,7 @@ public sealed class CreatePaymentProposalHandler(
 public sealed class ExecutePaymentRunHandler(
     S4herpDbContext db,
     IDispatcher dispatcher,
+    IApprovalService approvals,
     IAuthorizationEnforcer authorization,
     IUserContext user,
     ITenantContext tenant,
@@ -354,11 +397,11 @@ public sealed class ExecutePaymentRunHandler(
         await authorization.RequireAsync(
             "F_BKPF_BUK", [("BUKRS", companyCode.Code), ("ACTVT", "01")], ct);
 
-        if (run.Status != PaymentRunStatus.Proposed)
+        if (run.Status is not (PaymentRunStatus.Proposed or PaymentRunStatus.Approved))
         {
             throw new BusinessRuleException(
                 PaymentRunErrors.NotProposed,
-                $"Payment run {run.RunId} is {run.Status} and cannot be executed again.");
+                $"Payment run {run.RunId} is {run.Status} and cannot be executed.");
         }
 
         var payable = run.Items.Where(i => !i.IsExcluded).ToList();
@@ -373,6 +416,20 @@ public sealed class ExecutePaymentRunHandler(
             .Include(a => a.HouseBank)
             .Include(a => a.GLAccount)
             .SingleAsync(a => a.Id == run.HouseBankAccountId, ct);
+
+        // An approved run has already been through this. An unapproved one is
+        // asked here, once, rather than being trusted: the whole value of the
+        // control is that the run cannot route around it by never submitting.
+        if (run.Status == PaymentRunStatus.Proposed
+            && await approvals.IsApprovalRequiredAsync(
+                PaymentRunApproval.ObjectType, run.CompanyCodeId, null,
+                payable.Sum(i => i.Amount), account.CurrencyId, ct))
+        {
+            throw new BusinessRuleException(
+                PaymentRunErrors.NeedsApproval,
+                $"Payment run {run.RunId} needs approval before it can be executed. " +
+                "Submit it first.");
+        }
 
         var documents = new List<long>();
         var total = 0m;
@@ -505,6 +562,169 @@ public sealed class DeletePaymentProposalHandler(
             PaymentDocumentNumbers = [],
         };
     }
+}
+
+/// <summary>
+/// Submit, approve and reject for a payment run. The same approval engine the
+/// journal uses, told a different object type — which is the test of whether
+/// increment 3 built a workflow service or a journal-entry service wearing one.
+/// </summary>
+public sealed class PaymentRunApprovalHandlers(
+    S4herpDbContext db,
+    IApprovalService approvals,
+    IAuthorizationEnforcer authorization,
+    IUserContext user,
+    ITenantContext tenant,
+    IClock clock,
+    ICorrelationContext correlation)
+    : ICommandHandler<SubmitPaymentRunCommand, PaymentRunApprovalResult>,
+        ICommandHandler<ApprovePaymentRunCommand, PaymentRunApprovalResult>,
+        ICommandHandler<RejectPaymentRunCommand, PaymentRunApprovalResult>
+{
+    public async Task<PaymentRunApprovalResult> HandleAsync(
+        SubmitPaymentRunCommand command, CancellationToken ct)
+    {
+        var (run, companyCode, account, total) = await LoadAsync(command.RunId, ct);
+        await authorization.RequireAsync(
+            "F_BKPF_BUK", [("BUKRS", companyCode.Code), ("ACTVT", "01")], ct);
+
+        if (run.Status != PaymentRunStatus.Proposed)
+        {
+            throw new BusinessRuleException(
+                PaymentRunErrors.NotProposed,
+                $"Payment run {run.RunId} is {run.Status}; only a proposal can be submitted.");
+        }
+
+        if (total == 0m)
+        {
+            throw new BusinessRuleException(
+                PaymentRunErrors.NothingToPay,
+                $"Payment run {run.RunId} has nothing to pay, so there is nothing to approve.");
+        }
+
+        var started = await approvals.StartAsync(new StartApprovalRequest
+        {
+            ObjectType = PaymentRunApproval.ObjectType,
+            ObjectId = run.RunId,
+            CompanyCodeId = run.CompanyCodeId,
+            DocumentTypeCode = null,
+            Amount = total,
+            CurrencyId = account.CurrencyId,
+            ObjectCreatedBy = run.CreatedBy,
+        }, ct);
+
+        // Nothing configured to approve a run this size leaves it Proposed, and
+        // the execution gate will reach the same conclusion by the same matcher.
+        run.Status = started.Outcome == ApprovalOutcome.NotRequired
+            ? PaymentRunStatus.Proposed
+            : PaymentRunStatus.PendingApproval;
+
+        WriteAudit(run, Audit.Domain.AuditAction.Submit, "submit",
+            started.Outcome == ApprovalOutcome.NotRequired
+                ? $"Submitted {total:N2}; no approval rule matched."
+                : $"Submitted {total:N2} for approval in {started.Steps.Count} step(s).");
+
+        return Result(run, started.Outcome, total, started.Steps);
+    }
+
+    public Task<PaymentRunApprovalResult> HandleAsync(
+        ApprovePaymentRunCommand command, CancellationToken ct) =>
+        DecideAsync(command.RunId, ApprovalDecision.Approved, command.Comment, ct);
+
+    public Task<PaymentRunApprovalResult> HandleAsync(
+        RejectPaymentRunCommand command, CancellationToken ct) =>
+        DecideAsync(command.RunId, ApprovalDecision.Rejected, command.Comment, ct);
+
+    private async Task<PaymentRunApprovalResult> DecideAsync(
+        string runId, ApprovalDecision decision, string? comment, CancellationToken ct)
+    {
+        var (run, companyCode, account, total) = await LoadAsync(runId, ct);
+
+        // Seeing the run is a precondition of deciding on it.
+        await authorization.RequireAsync(
+            "F_BKPF_BUK", [("BUKRS", companyCode.Code), ("ACTVT", "03")], ct);
+
+        if (run.Status != PaymentRunStatus.PendingApproval)
+        {
+            throw new BusinessRuleException(
+                PaymentRunErrors.NotAwaitingApproval,
+                $"Payment run {run.RunId} is {run.Status} and has no approval awaiting a decision.");
+        }
+
+        await authorization.RequireAsync(
+            "W_APPROVE",
+            [("WFTYPE", PaymentRunApproval.ObjectType), ("AMOUNT_TO", AmountLimit.Encode(total))],
+            ct);
+
+        var result = await approvals.DecideAsync(new ApprovalDecisionRequest
+        {
+            ObjectType = PaymentRunApproval.ObjectType,
+            ObjectId = run.RunId,
+            Decision = decision,
+            Comment = comment,
+        }, ct);
+
+        run.Status = result.Outcome switch
+        {
+            // Approved releases it for execution; it does not execute it. Somebody
+            // still has to press the button, and that separation is deliberate —
+            // an approval that paid immediately would make "approve" and "pay" the
+            // same action performed by the approver.
+            ApprovalOutcome.Approved => PaymentRunStatus.Approved,
+            ApprovalOutcome.Rejected => PaymentRunStatus.Rejected,
+            _ => PaymentRunStatus.PendingApproval,
+        };
+
+        WriteAudit(run,
+            decision == ApprovalDecision.Approved
+                ? Audit.Domain.AuditAction.Approve
+                : Audit.Domain.AuditAction.Reject,
+            decision == ApprovalDecision.Approved ? "approve" : "reject",
+            $"Step {result.DecidedStep} {decision.ToString().ToLowerInvariant()}; " +
+            $"run {result.Outcome}." + (comment is { Length: > 0 } ? $" Comment: {comment}" : ""));
+
+        return Result(run, result.Outcome, total, result.Steps);
+    }
+
+    private async Task<(PaymentRun Run, CompanyCode Company, HouseBankAccount Account, decimal Total)>
+        LoadAsync(string runId, CancellationToken ct)
+    {
+        var run = await ExecutePaymentRunHandler.LoadAsync(db, runId, ct);
+        var companyCode = await db.Set<CompanyCode>()
+            .SingleAsync(c => c.Id == run.CompanyCodeId, ct);
+        var account = await db.Set<HouseBankAccount>()
+            .Include(a => a.HouseBank)
+            .SingleAsync(a => a.Id == run.HouseBankAccountId, ct);
+
+        return (run, companyCode, account, run.Items.Where(i => !i.IsExcluded).Sum(i => i.Amount));
+    }
+
+    private void WriteAudit(PaymentRun run, Audit.Domain.AuditAction action, string verb, string summary) =>
+        db.Add(new Audit.Domain.AuditLog
+        {
+            TenantId = tenant.TenantId,
+            OccurredAtUtc = clock.UtcNow,
+            UserName = user.UserName,
+            CompanyCodeId = run.CompanyCodeId,
+            Action = action,
+            ObjectType = PaymentRunApproval.ObjectType,
+            ObjectId = run.RunId,
+            SourceApi = $"POST /api/v1/finance/payment-runs/{{runId}}/{verb}",
+            TransactionCode = "F110",
+            CorrelationId = correlation.CorrelationId,
+            Summary = summary,
+        });
+
+    private static PaymentRunApprovalResult Result(
+        PaymentRun run, ApprovalOutcome outcome, decimal total,
+        IReadOnlyList<ApprovalStepView> steps) => new()
+        {
+            RunId = run.RunId,
+            Status = run.Status.ToString(),
+            ApprovalOutcome = outcome.ToString(),
+            TotalToPay = total,
+            Steps = steps,
+        };
 }
 
 public sealed class GetPaymentRunQueryHandler(

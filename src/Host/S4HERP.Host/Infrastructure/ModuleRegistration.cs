@@ -152,6 +152,15 @@ public static class ModuleRegistration
         services.AddScoped<
             ICommandHandler<CreatePaymentProposalCommand, PaymentProposalResult>,
             CreatePaymentProposalHandler>();
+        // One class serves three commands, so it is registered three times against
+        // the same scoped instance rather than three times over.
+        services.AddScoped<PaymentRunApprovalHandlers>();
+        services.AddScoped<ICommandHandler<SubmitPaymentRunCommand, PaymentRunApprovalResult>>(
+            p => p.GetRequiredService<PaymentRunApprovalHandlers>());
+        services.AddScoped<ICommandHandler<ApprovePaymentRunCommand, PaymentRunApprovalResult>>(
+            p => p.GetRequiredService<PaymentRunApprovalHandlers>());
+        services.AddScoped<ICommandHandler<RejectPaymentRunCommand, PaymentRunApprovalResult>>(
+            p => p.GetRequiredService<PaymentRunApprovalHandlers>());
         services.AddScoped<
             ICommandHandler<ExecutePaymentRunCommand, PaymentRunExecutionResult>,
             ExecutePaymentRunHandler>();

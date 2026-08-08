@@ -500,11 +500,11 @@ public partial class SampleDataSeeder
         // Approval limits. Zero-padded fixed width because the enforcer compares
         // interval bounds as text — see Workflow.Contracts.AmountLimit.
         await GrantAsync(roleMap["FI_APPROVER"], "W_APPROVE",
-            [("WFTYPE", "JournalEntry", null),
+            [("WFTYPE", "JournalEntry", null), ("WFTYPE", "PaymentRun", null),
              ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(50_000m))],
             objectMap, fieldMap, ct);
         await GrantAsync(roleMap["FI_SENIOR_APPROVER"], "W_APPROVE",
-            [("WFTYPE", "JournalEntry", null),
+            [("WFTYPE", "JournalEntry", null), ("WFTYPE", "PaymentRun", null),
              ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(10_000_000m))],
             objectMap, fieldMap, ct);
 
@@ -523,7 +523,7 @@ public partial class SampleDataSeeder
             [("BLART", "*", null), ("ACTVT", "01", null), ("ACTVT", "03", null)],
             objectMap, fieldMap, ct);
         await GrantAsync(roleMap["FI_SUPERVISOR"], "W_APPROVE",
-            [("WFTYPE", "JournalEntry", null),
+            [("WFTYPE", "JournalEntry", null), ("WFTYPE", "PaymentRun", null),
              ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(50_000m))],
             objectMap, fieldMap, ct);
 
@@ -558,15 +558,15 @@ public partial class SampleDataSeeder
     /// </summary>
     private async Task SeedApprovalRulesAsync(DateOnly validFrom, CancellationToken ct)
     {
-        var thresholds = new (string Currency, decimal Level1, decimal Level2)[]
+        var thresholds = new (string Currency, decimal Level1, decimal Level2, decimal Release)[]
         {
-            ("USD", 0m, 5_000m),
+            ("USD", 0m, 5_000m, 1_000m),
             // Roughly the USD figures at 36 THB, rounded to something a human would
             // actually configure.
-            ("THB", 0m, 180_000m),
+            ("THB", 0m, 180_000m, 36_000m),
         };
 
-        foreach (var (currencyCode, level1, level2) in thresholds)
+        foreach (var (currencyCode, level1, level2, release) in thresholds)
         {
             var currencyId = await CurrencyId(currencyCode, ct);
 
@@ -575,6 +575,7 @@ public partial class SampleDataSeeder
                 TenantId = _tenantId,
                 Code = $"JE_{currencyCode}_L1",
                 Name = $"Journal entry, first approval ({currencyCode})",
+                ObjectType = "JournalEntry",
                 DocumentTypeCode = null,
                 FromAmount = level1,
                 CurrencyId = currencyId,
@@ -590,11 +591,34 @@ public partial class SampleDataSeeder
                 TenantId = _tenantId,
                 Code = $"JE_{currencyCode}_L2",
                 Name = $"Journal entry, second approval above {level2:N0} {currencyCode}",
+                ObjectType = "JournalEntry",
                 DocumentTypeCode = null,
                 FromAmount = level2,
                 CurrencyId = currencyId,
                 ApproverRoleCode = "FI_SENIOR_APPROVER",
                 StepSequence = 20,
+                MakerCheckerEnforced = true,
+                ValidFrom = validFrom,
+                CreatedBy = "SEED",
+            });
+
+            // A payment release threshold, not a blanket rule. Setting it to zero
+            // was the first thing tried and it is the wrong default: it makes every
+            // routine small run — the ones a payables clerk executes daily — wait on
+            // a second person, which is how approval steps become rubber stamps.
+            // Above the threshold the run waits; below it, it does not, and both
+            // paths are exercised by the acceptance suite.
+            db.Add(new ApprovalRule
+            {
+                TenantId = _tenantId,
+                Code = $"PR_{currencyCode}_L1",
+                Name = $"Payment run release above {release:N0} {currencyCode}",
+                ObjectType = "PaymentRun",
+                DocumentTypeCode = null,
+                FromAmount = release,
+                CurrencyId = currencyId,
+                ApproverRoleCode = "FI_APPROVER",
+                StepSequence = 10,
                 MakerCheckerEnforced = true,
                 ValidFrom = validFrom,
                 CreatedBy = "SEED",

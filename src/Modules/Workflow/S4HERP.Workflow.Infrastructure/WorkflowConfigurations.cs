@@ -12,7 +12,10 @@ public class ApprovalRuleConfiguration : IEntityTypeConfiguration<ApprovalRule>
     {
         b.ToTable("ApprovalRule", Schemas.Wf);
         b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
-        b.HasIndex(x => new { x.TenantId, x.CompanyCodeId, x.DocumentTypeCode, x.FromAmount });
+        b.HasIndex(x => new
+        {
+            x.TenantId, x.ObjectType, x.CompanyCodeId, x.DocumentTypeCode, x.FromAmount,
+        });
 
         b.HasOne(x => x.CompanyCode).WithMany().HasForeignKey(x => x.CompanyCodeId)
             .OnDelete(DeleteBehavior.Restrict);

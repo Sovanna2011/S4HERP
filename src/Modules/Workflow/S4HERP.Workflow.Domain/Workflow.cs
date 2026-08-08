@@ -30,6 +30,14 @@ public class ApprovalRule : AuditableEntity, IDeactivatable, IValidityDated
     [MaxLength(20)] public required string Code { get; set; }
     [MaxLength(120)] public required string Name { get; set; }
 
+    /// <summary>
+    /// Which kind of object this rule governs — <c>JournalEntry</c>,
+    /// <c>PaymentRun</c>. Null matches any, which was the only possible answer
+    /// while there was one object type; with two, a journal rule would otherwise
+    /// silently start governing payment runs.
+    /// </summary>
+    [MaxLength(60)] public string? ObjectType { get; set; }
+
     /// <summary>Null matches any company code.</summary>
     public long? CompanyCodeId { get; set; }
     public CompanyCode? CompanyCode { get; set; }
