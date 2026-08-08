@@ -38,6 +38,11 @@ docker compose exec -T db /opt/mssql-tools18/bin/sqlcmd \
 filtered index fails without it — which makes a broken harness look like a
 working guard.
 
+The posting-engine suite refuses to run twice at once. Several of its checks
+measure a trial-balance delta around their own postings, so two runs sharing a
+database make each other fail for no product reason. It exits 2 rather than
+reporting a false red.
+
 ## Continuous integration
 
 `.github/workflows/ci.yml`, three jobs:

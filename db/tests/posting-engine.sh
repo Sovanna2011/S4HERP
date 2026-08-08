@@ -9,6 +9,19 @@
 set -uo pipefail
 
 BASE="${1:-http://localhost:8080}"
+
+# Refuse to run twice at once. Several checks measure a trial-balance delta
+# around their own postings, so an overlapping run makes them fail with no
+# product cause — a false red, which costs as much time to chase as a false
+# green. Observed exactly once, when a background invocation of this suite
+# overlapped a manual one and reported 133/136.
+LOCK="${TMPDIR:-/tmp}/s4herp-posting-engine.lock"
+exec 9>"$LOCK"
+if command -v flock >/dev/null 2>&1 && ! flock -n 9; then
+  echo "Another run of this suite is already in progress against a shared database."
+  echo "Refusing to start: the trial-balance delta checks would fail for no reason."
+  exit 2
+fi
 ACCOUNTANT='X-S4HERP-User: seed.accountant'
 CLERK='X-S4HERP-User: seed.clerk'
 AUDITOR='X-S4HERP-User: seed.auditor'
