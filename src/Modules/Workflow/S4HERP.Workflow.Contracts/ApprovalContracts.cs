@@ -61,6 +61,63 @@ public interface IApprovalService
         string? objectType, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// How a module describes its own objects to the approvals inbox.
+///
+/// The inbox has to show a person what is waiting on them, and Workflow
+/// deliberately knows only that an object has a type and an id. "PartnerBank
+/// BNK-00000003" is a correct row and a useless one. Rather than teach Workflow
+/// what a bank change is — which would make it depend on every module that has
+/// an approvable object, exactly backwards from ADR-02 — each module registers a
+/// describer for the types it owns.
+///
+/// Descriptions are looked up in batches because an inbox with forty items must
+/// not become forty round trips.
+/// </summary>
+public interface IApprovalObjectDescriber
+{
+    /// <summary>The object type this describes, matching <c>WorkflowInstance.ObjectType</c>.</summary>
+    string ObjectType { get; }
+
+    /// <summary>
+    /// Titles for the ids given. An id with no entry is not an error: the object
+    /// may have been discarded while its workflow row survives, and the inbox
+    /// falls back to the raw id rather than dropping the row.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, ApprovalObjectDescription>> DescribeAsync(
+        IReadOnlyList<string> objectIds, CancellationToken cancellationToken = default);
+}
+
+/// <param name="Title">What the object is, in one line a person recognises.</param>
+/// <param name="Subtitle">
+/// What decision the approver is actually being asked to make. For a bank change
+/// that is the account moving from one number to another, which is the entire
+/// question and is invisible from the title.
+/// </param>
+public sealed record ApprovalObjectDescription(string Title, string? Subtitle);
+
+/// <summary>One row of the cross-module approvals inbox.</summary>
+public sealed record ApprovalInboxItem
+{
+    public required string ObjectType { get; init; }
+    public required string ObjectId { get; init; }
+    public required string Title { get; init; }
+    public string? Subtitle { get; init; }
+
+    /// <summary>Null for a client-level object, which belongs to no company code.</summary>
+    public string? CompanyCode { get; init; }
+
+    /// <summary>Null where the object has no amount. Not zero — zero is a number.</summary>
+    public decimal? Amount { get; init; }
+    public string? Currency { get; init; }
+
+    public required string SubmittedBy { get; init; }
+    public required DateTime SubmittedAtUtc { get; init; }
+    public required int Sequence { get; init; }
+    public required string ApproverRoleCode { get; init; }
+    public required bool MakerCheckerBlocks { get; init; }
+}
+
 public enum ApprovalDecision
 {
     Approved = 2,

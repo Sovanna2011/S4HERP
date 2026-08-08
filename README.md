@@ -14,11 +14,12 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 7](docs/phase3/increment-7-payment-run-approval.md) | Delivered. Approval on the payment run: release threshold, maker-checker, execution gate |
 | 3 — [Increment 8](docs/phase3/increment-8-payment-file.md) | Delivered. ISO 20022 pain.001 payment file, S_EXPORT on the download, bank details in the proposal |
 | 3 — [Increment 9](docs/phase3/increment-9-partner-bank-maintenance.md) | Delivered. Partner bank maintenance under maker-checker; the approval engine generalised beyond financial documents |
+| 3 — [Increment 10](docs/phase3/increment-10-approvals-inbox.md) | Delivered. One approvals inbox across all object types, and the bank change approval screen |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**343 automated checks passing** across four suites, against the container image.
-Modules still to build — a generic approvals inbox, bank status reports, dunning,
+**380 automated checks passing** across four suites, against the container image.
+Modules still to build — the payment run screen, bank status reports, dunning,
 Asset Accounting, Controlling allocations, SE11 and SE16N — are designed in the
 blueprint and listed in each phase report.
 
@@ -51,8 +52,8 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 297 posting-engine checks over HTTP
-node ui5/test/ui-acceptance.mjs                  # 27 browser checks
+./db/tests/posting-engine.sh                     # 321 posting-engine checks over HTTP
+node ui5/test/ui-acceptance.mjs                  # 40 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
 
@@ -146,7 +147,8 @@ Compose composes from the variables above. Set
 | `POST` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/withdraw` | Pull a submission back out of approval |
 | `DELETE` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}` | Discard a document that never reached the ledger |
 | `GET` | `/api/v1/finance/journal-entries/{cc}/{year}/{no}/workflow` | Approval state and step history |
-| `GET` | `/api/v1/finance/approvals` | Documents waiting on the calling user |
+| `GET` | `/api/v1/approvals` | Everything waiting on the calling user, of every kind. Optional `?objectType=` |
+| `GET` | `/api/v1/finance/approvals` | Journal entries waiting on the calling user |
 | `POST` | `/api/v1/finance/payments` | Pay and clear open items (F-28 / F-53) |
 | `POST` | `/api/v1/finance/payments/{cc}/{year}/{no}/reset-clearing` | Reopen the items a payment cleared (FBRA) |
 | `GET` | `/api/v1/finance/open-items` | Open items with aging (FBL5N / FBL1N) |

@@ -3,12 +3,8 @@ sap.ui.define([
     "sap/ui/model/json/JSONModel",
     "s4herp/ui/model/formatter",
     "sap/m/MessageBox",
-    "sap/m/MessageToast",
-    "sap/m/Dialog",
-    "sap/m/Button",
-    "sap/m/TextArea"
-], (BaseController, JSONModel, formatter, MessageBox, MessageToast,
-    Dialog, Button, TextArea) => {
+    "sap/m/MessageToast"
+], (BaseController, JSONModel, formatter, MessageBox, MessageToast) => {
     "use strict";
 
     return BaseController.extend("s4herp.ui.controller.DocumentDisplay", {
@@ -141,54 +137,6 @@ sap.ui.define([
             } finally {
                 view.setBusy(false);
             }
-        },
-
-        /**
-         * Asks for the comment that goes on the approval step. Built as a dialog
-         * rather than a MessageBox because MessageBox cannot take free text, and a
-         * rejection reason typed by the approver is the whole value of the record.
-         */
-        _promptComment(titleKey, labelKey, required, onConfirm) {
-            const input = new TextArea({
-                width: "100%",
-                rows: 3,
-                placeholder: this.text(labelKey),
-                valueLiveUpdate: true
-            });
-
-            const confirm = new Button({
-                text: this.text("confirm"),
-                type: "Emphasized",
-                // Required means required here too. The server refuses an empty
-                // rejection reason, and finding that out after a round trip helps
-                // nobody.
-                enabled: !required,
-                press: () => {
-                    dialog.close();
-                    onConfirm(input.getValue());
-                }
-            });
-
-            if (required) {
-                input.attachLiveChange(() =>
-                    confirm.setEnabled(input.getValue().trim().length > 0));
-            }
-
-            const dialog = new Dialog({
-                id: this.createId("commentDialog"),
-                title: this.text(titleKey),
-                contentWidth: "24rem",
-                content: [input],
-                beginButton: confirm,
-                endButton: new Button({
-                    text: this.text("cancel"),
-                    press: () => dialog.close()
-                }),
-                afterClose: () => dialog.destroy()
-            });
-
-            this.getView().addDependent(dialog);
-            dialog.open();
         },
 
         onReverse() {

@@ -87,6 +87,11 @@
           "pattern": "approvals",
           "name": "approvals",
           "target": "approvals"
+        },
+        {
+          "pattern": "approvals/bank-change/{requestId}",
+          "name": "bankChange",
+          "target": "bankChange"
         }
       ],
       "targets": {
@@ -114,6 +119,11 @@
           "viewId": "approvals",
           "viewName": "Approvals",
           "viewLevel": 2
+        },
+        "bankChange": {
+          "viewId": "bankChange",
+          "viewName": "BankChange",
+          "viewLevel": 3
         }
       }
     }

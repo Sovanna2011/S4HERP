@@ -81,6 +81,22 @@ async function textAppears(selector, needle, timeout = 15000) {
   }
 }
 
+/// The mirror of textAppears, and not the same as `!textAppears`: after a
+/// filter change the old rows are still on screen for as long as the reload
+/// takes, so "is it absent right now" is true of a list that is about to become
+/// correct and false of one that already is. Only "does it go away" is stable.
+async function textDisappears(selector, needle, timeout = 15000) {
+  try {
+    await page.waitForFunction(
+      ([sel, text]) => !(document.querySelector(sel)?.innerText?.includes(text) ?? false),
+      [selector, needle],
+      { timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function setUser(userName) {
   await page.evaluate((u) => {
     const raw = window.localStorage.getItem('s4herp.context');
@@ -256,6 +272,102 @@ check('Approving posts the document',
   (await page.locator(ID('documentDisplay', 'documentPage')).innerText()).includes('Posted'));
 check('...and the approval history records who approved it',
   await textAppears(ID('documentDisplay', 'workflowSteps'), 'seed.approver'));
+
+console.log('\n== The inbox is not journal entries only ==');
+
+// Only one change may be open per partner, so a run that died halfway would
+// otherwise poison every run after it. Clearing first makes the suite
+// re-runnable against a live instance, which is how it is actually used.
+const stale = await (await fetch(`${BASE}/api/v1/approvals?objectType=PartnerBank`,
+  { headers: { 'X-S4HERP-User': 'seed.approver' } })).json();
+for (const item of stale.filter((i) => i.title.includes('1000000004'))) {
+  await fetch(`${BASE}/api/v1/business-partners/bank-details/changes/${item.objectId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-S4HERP-User': 'seed.approver' },
+    body: JSON.stringify({ comment: 'Cleared by the acceptance suite before re-running.' })
+  });
+}
+
+// A bank change raised over the API, then found and decided entirely through
+// the UI. The point of the increment is that an approver does not need to know
+// the request id to discover it, so the test does not use one to navigate.
+// The account number varies per run so a completed earlier run does not make
+// this one a duplicate.
+const accountNumber = `777-2-${String(Date.now()).slice(-5)}-4`;
+const bankChange = await fetch(`${BASE}/api/v1/business-partners/1000000004/bank-details/changes`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-S4HERP-User': 'seed.bankclerk' },
+  body: JSON.stringify({
+    operation: 'Create',
+    newCountryCode: 'TH',
+    newBankKey: 'BKKBTHBK',
+    newBankName: 'Bangkok Bank',
+    newAccountNumber: accountNumber,
+    newAccountHolder: 'KSS Thailand',
+    newIsDefault: true,
+    reason: 'Intercompany settlement account opened in Bangkok'
+  })
+});
+const bankChangeBody = await bankChange.json();
+check('A bank change can be raised for the inbox to carry', bankChange.status === 202,
+  `${bankChange.status} ${JSON.stringify(bankChangeBody).slice(0, 120)}`);
+
+await setUser('seed.approver');
+await open('#/approvals');
+await page.waitForSelector(ID('approvals', 'approvalsTable'), { timeout: 30000 });
+check('The inbox shows the bank change alongside financial documents',
+  await textAppears(ID('approvals', 'approvalsTable'), 'KSS Thailand'));
+check('...described by what it would do, not by its request id',
+  await textAppears(ID('approvals', 'approvalsTable'), accountNumber));
+check('...and labelled as a client-level object, having no company code',
+  await textAppears(ID('approvals', 'approvalsTable'), 'All company codes'));
+
+// Filtering is the convenience; showing everything is the default. Selected by
+// label rather than by position: a SegmentedButton renders its items as <li>,
+// and an index would silently follow whatever order the view happens to declare.
+const filterButton = (label) => page
+  .locator(ID('approvals', 'approvalsFilter') + ' .sapMSegBBtn')
+  .filter({ hasText: new RegExp(`^${label}$`) });
+
+await filterButton('Bank details').click();
+check('Filtering to bank details keeps the bank change',
+  await textAppears(ID('approvals', 'approvalsTable'), 'KSS Thailand'));
+await filterButton('Journal entries').click();
+check('...and filtering to journal entries drops it',
+  await textDisappears(ID('approvals', 'approvalsTable'), 'KSS Thailand'));
+await filterButton('All').click();
+await page.waitForTimeout(1500);
+
+const bankRow = page.locator(ID('approvals', 'approvalsTable') + ' tbody tr')
+  .filter({ hasText: 'KSS Thailand' });
+check('The bank change opens from the inbox', (await bankRow.count()) === 1);
+await bankRow.first().click();
+await page.waitForURL(/#\/approvals\/bank-change\//, { timeout: 30000 });
+await page.waitForSelector(ID('bankChange', 'bankChangeFields'), { timeout: 30000 });
+
+const FIELDS_TABLE = ID('bankChange', 'bankChangeFields');
+check('...showing every field, not only the ones that moved',
+  (await textAppears(FIELDS_TABLE, 'Account number'))
+  && (await textAppears(FIELDS_TABLE, 'SWIFT/BIC'))
+  && (await textAppears(FIELDS_TABLE, 'Account holder')));
+check('...with the proposed account number',
+  await textAppears(FIELDS_TABLE, accountNumber));
+check('...and an explicit blank where there is no previous value',
+  await textAppears(FIELDS_TABLE, '\u2014'));
+
+await page.locator(ID('bankChange', 'bankChangeApproveButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Account confirmed against the bank letter.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+check('Approving from the screen applies the change',
+  await textAppears(ID('bankChange', 'bankChangeStatus'), 'Applied'));
+check('...and records who decided it',
+  await textAppears(ID('bankChange', 'bankChangeSteps'), 'seed.approver'));
+
+await open('#/approvals');
+await page.waitForSelector(ID('approvals', 'approvalsTable'), { timeout: 30000 });
+check('...so the inbox no longer carries it',
+  await textDisappears(ID('approvals', 'approvalsTable'), 'KSS Thailand'));
 
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });

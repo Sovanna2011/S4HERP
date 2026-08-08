@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using S4HERP.BuildingBlocks.Application;
 using S4HERP.BuildingBlocks.Infrastructure;
+using S4HERP.Organization.Domain;
 using S4HERP.Workflow.Contracts;
 using S4HERP.Workflow.Domain;
 
@@ -362,4 +363,105 @@ public sealed class ApprovalService(
     private static ApprovalStepView ToView(WorkflowStep s) => new(
         s.Sequence, s.ApproverRoleCode, s.MakerCheckerEnforced,
         s.Decision.ToString(), s.DecidedBy, s.DecidedAtUtc, s.Comment);
+}
+
+
+// ------------------------------------------------------------ inbox, cross-module
+
+/// <summary>Everything waiting on the calling user, whatever kind of object it is.</summary>
+public sealed record ApprovalInboxQuery : IQuery<IReadOnlyList<ApprovalInboxItem>>
+{
+    /// <summary>Optional narrowing to one object type. Null returns all of them.</summary>
+    public string? ObjectType { get; init; }
+}
+
+/// <summary>
+/// The generic inbox. Until now the only inbox was Finance's, which filtered to
+/// journal entries — so a payment run waiting on its release, and later a bank
+/// change waiting on a second signature, were invisible to the person who had to
+/// decide them. The engine had served three object types and the screen showed
+/// one.
+///
+/// Titles come from the owning module through <see cref="IApprovalObjectDescriber"/>,
+/// so this handler stays ignorant of what any of these objects are.
+/// </summary>
+public sealed class ApprovalInboxQueryHandler(
+    S4herpDbContext db,
+    IApprovalService approvals,
+    IEnumerable<IApprovalObjectDescriber> describers)
+    : IQueryHandler<ApprovalInboxQuery, IReadOnlyList<ApprovalInboxItem>>
+{
+    public async Task<IReadOnlyList<ApprovalInboxItem>> HandleAsync(
+        ApprovalInboxQuery query, CancellationToken ct)
+    {
+        var pending = await approvals.InboxAsync(query.ObjectType, ct);
+        if (pending.Count == 0)
+        {
+            return [];
+        }
+
+        var companyCodeIds = pending
+            .Where(p => p.CompanyCodeId is not null)
+            .Select(p => p.CompanyCodeId!.Value)
+            .Distinct()
+            .ToList();
+
+        var codes = await db.Set<CompanyCode>()
+            .AsNoTracking()
+            .Where(c => companyCodeIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => new { c.Code, c.LocalCurrencyId }, ct);
+
+        var currencyIds = codes.Values.Select(c => c.LocalCurrencyId).Distinct().ToList();
+        var currencies = await db.Set<Currency>()
+            .AsNoTracking()
+            .Where(c => currencyIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Code, ct);
+
+        var byType = describers.ToDictionary(d => d.ObjectType, StringComparer.OrdinalIgnoreCase);
+        var descriptions = new Dictionary<(string Type, string Id), ApprovalObjectDescription>();
+
+        foreach (var group in pending.GroupBy(p => p.ObjectType))
+        {
+            if (!byType.TryGetValue(group.Key, out var describer))
+            {
+                // A registered object type with no describer. Not fatal — the row
+                // still appears under its raw id — but it is a wiring mistake, and
+                // silently showing "PartnerBank BNK-00000003" is how it would stay
+                // unnoticed. The API contract makes it visible instead.
+                continue;
+            }
+
+            var ids = group.Select(p => p.ObjectId).Distinct().ToList();
+            foreach (var (id, description) in await describer.DescribeAsync(ids, ct))
+            {
+                descriptions[(group.Key, id)] = description;
+            }
+        }
+
+        return pending
+            .Select(p =>
+            {
+                var described = descriptions.GetValueOrDefault((p.ObjectType, p.ObjectId));
+                var company = p.CompanyCodeId is { } id ? codes.GetValueOrDefault(id) : null;
+
+                return new ApprovalInboxItem
+                {
+                    ObjectType = p.ObjectType,
+                    ObjectId = p.ObjectId,
+                    Title = described?.Title ?? p.ObjectId,
+                    Subtitle = described?.Subtitle,
+                    CompanyCode = company?.Code,
+                    Amount = p.Amount,
+                    Currency = company is null
+                        ? null
+                        : currencies.GetValueOrDefault(company.LocalCurrencyId),
+                    SubmittedBy = p.SubmittedBy,
+                    SubmittedAtUtc = p.SubmittedAtUtc,
+                    Sequence = p.Sequence,
+                    ApproverRoleCode = p.ApproverRoleCode,
+                    MakerCheckerBlocks = p.MakerCheckerBlocks,
+                };
+            })
+            .ToList();
+    }
 }

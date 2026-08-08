@@ -48,6 +48,21 @@ sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
             }
         },
 
+        /**
+         * A bank change request's own status, which is not the same vocabulary as
+         * a document's: Applied rather than Posted, and Withdrawn is a normal
+         * ending rather than a warning about a document that went nowhere.
+         */
+        bankChangeStatusState(status) {
+            switch (status) {
+                case "Applied": return "Success";
+                case "Rejected": return "Error";
+                case "Withdrawn": return "Warning";
+                case "Pending": return "Information";
+                default: return "None";
+            }
+        },
+
         stepDecisionState(decision) {
             switch (decision) {
                 case "Approved": return "Success";

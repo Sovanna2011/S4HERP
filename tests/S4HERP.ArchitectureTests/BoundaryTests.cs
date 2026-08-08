@@ -34,6 +34,7 @@ public class BoundaryTests
         typeof(Workflow.Infrastructure.ApprovalRuleConfiguration).Assembly,
         typeof(Workflow.Application.ApprovalService).Assembly,
         typeof(Workflow.Contracts.IApprovalService).Assembly,
+        typeof(Workflow.Api.WorkflowEndpoints).Assembly,
     ];
 
     /// <summary>

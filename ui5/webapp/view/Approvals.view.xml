@@ -21,36 +21,59 @@
         </f:header>
 
         <f:content>
-            <Table id="approvalsTable"
-                   items="{/items}"
-                   noDataText="{i18n>approvalsEmpty}">
-                <columns>
-                    <Column><Text text="{i18n>document}"/></Column>
-                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>companyCode}"/></Column>
-                    <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
-                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>submittedByColumn}"/></Column>
-                    <Column minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>step}"/></Column>
-                    <Column hAlign="End"><Text text="{i18n>action}"/></Column>
-                </columns>
-                <items>
-                    <ColumnListItem type="Navigation" press=".onOpen">
-                        <cells>
-                            <ObjectIdentifier title="{documentId}"/>
-                            <Text text="{companyCode}"/>
-                            <ObjectNumber number="{path: 'amount', formatter: '.formatter.amount'}"/>
-                            <Text text="{submittedBy}"/>
-                            <Text text="{sequence} · {approverRoleCode}"/>
-                            <!-- Shown, not hidden: an approver needs to see that a
-                                 document is waiting and understand why they in
-                                 particular cannot release it. -->
-                            <ObjectStatus text="{= ${makerCheckerBlocks}
-                                              ? ${i18n>makerCheckerBlocked}
-                                              : ${i18n>awaitingYou} }"
-                                          state="{= ${makerCheckerBlocks} ? 'Warning' : 'Information' }"/>
-                        </cells>
-                    </ColumnListItem>
-                </items>
-            </Table>
+            <VBox>
+                <!-- One inbox, every kind of object. Filtering by type is a
+                     convenience; the default is everything, because an approver
+                     who has to remember to check a second list will not. -->
+                <SegmentedButton id="approvalsFilter"
+                                 class="sapUiSmallMarginBottom"
+                                 selectedKey="{/filter}"
+                                 selectionChange=".onFilter">
+                    <items>
+                        <SegmentedButtonItem key="" text="{i18n>approvalsAll}"/>
+                        <SegmentedButtonItem key="JournalEntry" text="{i18n>approvalsJournalEntries}"/>
+                        <SegmentedButtonItem key="PaymentRun" text="{i18n>approvalsPaymentRuns}"/>
+                        <SegmentedButtonItem key="PartnerBank" text="{i18n>approvalsBankChanges}"/>
+                    </items>
+                </SegmentedButton>
+
+                <Table id="approvalsTable"
+                       items="{/items}"
+                       noDataText="{i18n>approvalsEmpty}">
+                    <columns>
+                        <Column><Text text="{i18n>approvalsWhat}"/></Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>approvalsKind}"/></Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>companyCode}"/></Column>
+                        <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>submittedByColumn}"/></Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true"><Text text="{i18n>step}"/></Column>
+                        <Column hAlign="End"><Text text="{i18n>action}"/></Column>
+                    </columns>
+                    <items>
+                        <!-- Navigable only where a screen exists for the type.
+                             A row that looks clickable and does nothing is worse
+                             than one that plainly is not. -->
+                        <ColumnListItem type="{= ${navigable} ? 'Navigation' : 'Inactive' }"
+                                        press=".onOpen">
+                            <cells>
+                                <ObjectIdentifier title="{title}" text="{subtitle}"/>
+                                <Text text="{kindText}"/>
+                                <Text text="{= ${companyCode} || ${i18n>approvalsClientLevel} }"/>
+                                <!-- No amount is not zero. A bank change has no
+                                     value, and printing 0.00 would say it does. -->
+                                <ObjectNumber number="{= ${amount} === null ? '' : ${path: 'amount', formatter: '.formatter.amount'} }"
+                                              unit="{currency}"/>
+                                <Text text="{submittedBy}"/>
+                                <Text text="{sequence} · {approverRoleCode}"/>
+                                <ObjectStatus text="{= ${makerCheckerBlocks}
+                                                  ? ${i18n>makerCheckerBlocked}
+                                                  : ${i18n>awaitingYou} }"
+                                              state="{= ${makerCheckerBlocks} ? 'Warning' : 'Information' }"/>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+            </VBox>
         </f:content>
     </f:DynamicPage>
 </mvc:View>

@@ -113,7 +113,14 @@ public sealed record WithdrawBankChangeCommand : ICommand<BankChangeRequestResul
     public string? Comment { get; init; }
 }
 
-[RequiresAuthorization("F_BP_BANK", "03")]
+/// <summary>
+/// Reading one change request. Deliberately carries no <c>RequiresAuthorization</c>
+/// attribute, because two different authorities can legitimately read it and the
+/// attribute expresses only one: the clerk who maintains bank details, and the
+/// approver who has to decide this change. Gating it on <c>F_BP_BANK</c> alone
+/// meant an approver could see the item in their inbox and then get a 403 on
+/// opening it — which is how the approvals screen found this.
+/// </summary>
 public sealed record GetBankChangeQuery : IQuery<BankChangeRequestResult>
 {
     public required string RequestId { get; init; }
@@ -171,9 +178,6 @@ public sealed record BankDetailView(
     string? Iban,
     string? Swift,
     bool IsDefault);
-
-/// <summary>Only meaningful on a create; a change never moves the validity window.</summary>
-public sealed record BankValidity(DateOnly? ValidFrom);
 
 public sealed record PartnerBanksResult
 {
@@ -744,7 +748,19 @@ public sealed class GetBankChangeQueryHandler(
 {
     public async Task<BankChangeRequestResult> HandleAsync(GetBankChangeQuery query, CancellationToken ct)
     {
-        await authorization.RequireAsync("F_BP_BANK", [("ACTVT", "03")], ct);
+        // Either authority is enough, and neither implies the other. An approver
+        // holds no F_BP_BANK by design — that is SOD004 — so requiring it would
+        // make the approval impossible to make informedly, which is worse than
+        // useless: it would leave the approver clicking approve on a request they
+        // were not allowed to read.
+        var mayMaintain = await authorization.IsAuthorizedAsync(
+            "F_BP_BANK", [("ACTVT", "03")], ct);
+
+        if (!mayMaintain)
+        {
+            await authorization.RequireAsync(
+                "W_APPROVE", [("WFTYPE", BankMaintenance.ObjectType)], ct);
+        }
 
         var request = await db.Set<PartnerBankChangeRequest>()
             .AsNoTracking()
@@ -799,5 +815,66 @@ public sealed class GetPartnerBanksQueryHandler(
             Banks = banks,
             PendingChangeRequests = pending,
         };
+    }
+}
+
+
+// -------------------------------------------------------------- inbox describer
+
+/// <summary>
+/// What a pending bank change looks like in the approvals inbox. The subtitle
+/// carries the actual change — "account 0001-00-123456-1 → 0002-00-999888-7" —
+/// because that is the decision, and an inbox row saying only "Change on
+/// 1000000002" asks the approver to open every item to find out which ones
+/// matter.
+/// </summary>
+public sealed class PartnerBankChangeDescriber(S4herpDbContext db) : IApprovalObjectDescriber
+{
+    public string ObjectType => BankMaintenance.ObjectType;
+
+    public async Task<IReadOnlyDictionary<string, ApprovalObjectDescription>> DescribeAsync(
+        IReadOnlyList<string> objectIds, CancellationToken cancellationToken = default)
+    {
+        var requests = await db.Set<PartnerBankChangeRequest>()
+            .AsNoTracking()
+            .Include(r => r.Partner)
+            .Where(r => objectIds.Contains(r.RequestId))
+            .Select(r => new
+            {
+                r.RequestId,
+                r.Operation,
+                r.Partner.PartnerNumber,
+                PartnerName = r.Partner.Name ?? r.Partner.LastName,
+                r.AccountNumber,
+                r.PreviousValues,
+                r.Reason,
+            })
+            .ToListAsync(cancellationToken);
+
+        return requests.ToDictionary(
+            r => r.RequestId,
+            r =>
+            {
+                var previous = r.PreviousValues is null
+                    ? null
+                    : JsonSerializer.Deserialize<BankDetailView>(r.PreviousValues);
+
+                var what = r.Operation switch
+                {
+                    BankChangeOperation.Create =>
+                        $"New account {r.AccountNumber}",
+                    BankChangeOperation.Deactivate =>
+                        $"Close account {r.AccountNumber}",
+                    _ when previous?.AccountNumber is { } was && was != r.AccountNumber =>
+                        $"Account {was} → {r.AccountNumber}",
+                    // A change that leaves the account number alone is a lower-risk
+                    // edit, and saying so is more useful than repeating the number.
+                    _ => $"Details of account {r.AccountNumber}",
+                };
+
+                return new ApprovalObjectDescription(
+                    $"{r.PartnerName} ({r.PartnerNumber})",
+                    $"{what} · {r.Reason}");
+            });
     }
 }

@@ -1336,6 +1336,76 @@ check "...and now it is closed, not deleted" 200 - \
 assert_body "...the row survives as the record of where money went" '"accountNumber":"555444-3"'
 assert_body "...but is no longer current" '"isCurrent":false'
 
+echo
+echo "== The approvals inbox, across object types =="
+
+# The engine has served three object types since increment 7; the only inbox
+# filtered to journal entries, so a payment run waiting on release and a bank
+# change waiting on a signature were invisible to whoever had to decide them.
+check "A clerk raises a change the approver has not seen" 202 - \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKCLERK" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newAccountHolder":"Mekong Logistics Company Limited",
+       "reason":"Legal name on the invoice is the full form"}'
+BNK8=$(json_field requestId)
+
+check "The generic inbox carries it" 200 - "$BASE/api/v1/approvals" -H "$APPROVER"
+assert_body "...as a bank change, named by object type" '"objectType":"PartnerBank"'
+assert_body "...described by the partner, not the request id" \
+  'Mekong Logistics Ltd \(1000000002\)'
+assert_body "...with the change itself in the subtitle" 'Details of account 0002-00-999888-7'
+# A bank change has no amount. Reporting zero would say it is worth nothing,
+# which is a different and false claim.
+assert_body "...and a null amount, because it has none" '"amount":null'
+assert_body "...and no company code, being client-level" '"companyCode":null'
+
+check "Filtering to journal entries excludes it" 200 - \
+  "$BASE/api/v1/approvals?objectType=JournalEntry" -H "$APPROVER"
+if printf '%s' "$LAST_BODY" | grep -q '"objectType":"PartnerBank"'; then
+  echo "  FAIL  the object type filter is ignored"
+  FAILURES+=("inbox filter"); fail=$((fail+1))
+else
+  echo "  PASS  ...leaving only what was asked for"; pass=$((pass+1))
+fi
+
+check "Filtering to bank changes keeps it" 200 - \
+  "$BASE/api/v1/approvals?objectType=PartnerBank" -H "$APPROVER"
+assert_body "...and only it" '"objectType":"PartnerBank"'
+
+# The inbox is per person, not a global work list.
+check "Someone with no approval authority sees an empty inbox" 200 - \
+  "$BASE/api/v1/approvals" -H "$BANKCLERK"
+assert_body "...because nothing waits on them" '^\[\]$'
+
+# The supervisor holds the approver role, so a change they raised themselves
+# appears in their own inbox — flagged rather than hidden, because an approver
+# needs to see that something is waiting and understand why they in particular
+# cannot release it.
+check "...the supervisor sees the clerk's item as actionable" 200 - \
+  "$BASE/api/v1/approvals?objectType=PartnerBank" -H "$BANKSUP"
+assert_body "...not blocked, since somebody else raised it" '"makerCheckerBlocks":false'
+
+check "Deciding it empties the inbox again" 200 - \
+  -X POST "$CHANGES/$BNK8/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Full legal name matches the invoice"}'
+
+# Now the other half: an item the viewer raised themselves.
+check "The supervisor raises one of their own" 202 - \
+  -X POST "$BPBASE/1000000002/bank-details/changes" -H "$BANKSUP" -H "$JSON" \
+  -d '{"operation":"Change","accountNumber":"0002-00-999888-7","newBankName":"ACLEDA Bank Plc (Main Branch)",
+       "reason":"Branch name on the statement"}'
+BNK9=$(json_field requestId)
+check "...and sees it in their own inbox" 200 - \
+  "$BASE/api/v1/approvals?objectType=PartnerBank" -H "$BANKSUP"
+assert_body "...flagged as their own work, not hidden from them" '"makerCheckerBlocks":true'
+check "...while to another approver it is ordinary work" 200 - \
+  "$BASE/api/v1/approvals?objectType=PartnerBank" -H "$APPROVER"
+assert_body "...and actionable" '"makerCheckerBlocks":false'
+check "...decided by that other approver" 200 - \
+  -X POST "$CHANGES/$BNK9/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Branch name confirmed"}'
+check "...confirmed" 200 - "$BASE/api/v1/approvals?objectType=PartnerBank" -H "$APPROVER"
+assert_body "...nothing left of that kind" '^\[\]$'
+
 check "Trial balance still foots after bank maintenance" 200 - \
   "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
 DIFF10=$(json_field difference)

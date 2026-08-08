@@ -1,0 +1,117 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.BankChange"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns:form="sap.ui.layout.form">
+    <f:DynamicPage id="bankChangePage" headerExpanded="true" showFooter="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title id="bankChangeTitle" text="{/requestId}"/></f:heading>
+                <f:expandedContent>
+                    <ObjectStatus id="bankChangeStatus"
+                                  text="{/status}"
+                                  state="{path: '/status', formatter: '.formatter.bankChangeStatusState'}"/>
+                </f:expandedContent>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <form:SimpleForm editable="false" layout="ResponsiveGridLayout" columnsL="3" columnsM="2">
+                    <Label text="{i18n>businessPartner}"/><Text text="{/partnerNumber}"/>
+                    <Label text="{i18n>bankChangeOperation}"/><Text text="{/operation}"/>
+                    <Label text="{i18n>bankChangeRequestedBy}"/><Text text="{/requestedBy}"/>
+                    <Label text="{i18n>bankChangeReason}"/><Text text="{/reason}"/>
+                    <Label text="{i18n>bankChangeValidFrom}"/><Text text="{/proposedValidFrom}"/>
+                    <Label text="{i18n>decidedBy}"/><Text text="{/decidedBy}"/>
+                </form:SimpleForm>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+          <VBox class="sapUiSmallMargin">
+            <!-- Side by side, always. The decision is not "is this account
+                 number plausible" but "should this account replace that one",
+                 and a form showing only the proposal cannot ask that. -->
+            <Panel headerText="{i18n>bankChangeComparison}" expandable="false">
+                <content>
+                    <Table id="bankChangeFields" items="{/fields}">
+                        <columns>
+                            <Column><Text text="{i18n>bankChangeField}"/></Column>
+                            <Column><Text text="{i18n>bankChangeBefore}"/></Column>
+                            <Column><Text text="{i18n>bankChangeAfter}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <Text text="{label}"/>
+                                    <Text text="{before}"/>
+                                    <!-- Only the fields that actually move are
+                                         highlighted, so a change of one field in
+                                         eight is visible at a glance instead of
+                                         being found by reading. -->
+                                    <ObjectStatus text="{after}"
+                                                  state="{= ${changed} ? 'Warning' : 'None' }"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+
+            <Panel id="bankChangeWorkflow"
+                   class="sapUiSmallMarginTop"
+                   headerText="{i18n>approvalHistory}"
+                   expandable="true"
+                   expanded="true">
+                <content>
+                    <Table id="bankChangeSteps" items="{/approvalSteps}">
+                        <columns>
+                            <Column width="4rem"><Text text="{i18n>step}"/></Column>
+                            <Column><Text text="{i18n>approverRole}"/></Column>
+                            <Column><Text text="{i18n>decision}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>decidedBy}"/></Column>
+                            <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>comment}"/></Column>
+                        </columns>
+                        <items>
+                            <ColumnListItem>
+                                <cells>
+                                    <Text text="{sequence}"/>
+                                    <Text text="{approverRoleCode}"/>
+                                    <ObjectStatus text="{decision}"
+                                                  state="{path: 'decision', formatter: '.formatter.stepDecisionState'}"/>
+                                    <Text text="{decidedBy}"/>
+                                    <Text text="{comment}"/>
+                                </cells>
+                            </ColumnListItem>
+                        </items>
+                    </Table>
+                </content>
+            </Panel>
+          </VBox>
+        </f:content>
+
+        <f:footer>
+            <!-- The buttons are on screen for anyone; the server decides. Hiding
+                 them from the requester would teach the wrong lesson about why
+                 they cannot approve (§22.1). -->
+            <OverflowToolbar>
+                <ToolbarSpacer/>
+                <Button id="bankChangeRejectButton"
+                        text="{i18n>reject}"
+                        type="Reject"
+                        visible="{= ${/status} === 'Pending' }"
+                        press=".onReject"/>
+                <Button id="bankChangeApproveButton"
+                        text="{i18n>approve}"
+                        type="Accept"
+                        visible="{= ${/status} === 'Pending' }"
+                        press=".onApprove"/>
+            </OverflowToolbar>
+        </f:footer>
+    </f:DynamicPage>
+</mvc:View>

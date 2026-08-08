@@ -122,6 +122,16 @@ public static class ModuleRegistration
         services.AddScoped<ICurrencyTranslator, CurrencyTranslator>();
         services.AddScoped<INumberRangeAllocator, NumberRangeAllocator>();
         services.AddScoped<IApprovalService, ApprovalService>();
+
+        // One describer per approvable object type, resolved as a collection by
+        // the inbox. Registering them here rather than by assembly scanning keeps
+        // the wiring greppable: the list is the answer to "what can be approved".
+        services.AddScoped<IApprovalObjectDescriber, JournalEntryDescriber>();
+        services.AddScoped<IApprovalObjectDescriber, PaymentRunDescriber>();
+        services.AddScoped<IApprovalObjectDescriber, PartnerBankChangeDescriber>();
+        services.AddScoped<
+            IQueryHandler<ApprovalInboxQuery, IReadOnlyList<ApprovalInboxItem>>,
+            ApprovalInboxQueryHandler>();
         services.AddScoped<ParkedDocumentPoster>();
 
         // Business partner bank maintenance. The only writer of mdm.BusinessPartnerBank,
