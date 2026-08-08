@@ -22,7 +22,16 @@ public class PartnerCompanyCode : AuditableEntity, IDeactivatable
     public long ReconciliationAccountId { get; set; }
 
     [MaxLength(4)] public string? PaymentTerms { get; set; }
-    [MaxLength(1)] public string? PaymentMethods { get; set; }
+
+    /// <summary>
+    /// The payment methods this partner permits, as a concatenated list of
+    /// single-character codes — SAP's ZWELS, e.g. <c>"TC"</c> for transfer or
+    /// cheque. Ten characters, not one: the payment run has always matched with
+    /// a substring search, so a one-character column meant the code was written
+    /// for a list the schema could not hold. Found when a partner needed to
+    /// accept both.
+    /// </summary>
+    [MaxLength(10)] public string? PaymentMethods { get; set; }
     [MaxLength(4)] public string? DunningProcedure { get; set; }
     [MaxLength(4)] public string? ToleranceGroup { get; set; }
     [MaxLength(2)] public string? WithholdingTaxCode { get; set; }

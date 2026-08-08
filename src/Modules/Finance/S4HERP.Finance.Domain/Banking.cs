@@ -120,3 +120,51 @@ public class PaymentRunItem : AuditableEntity
     /// <summary>Set when the run is executed and this item is actually paid.</summary>
     public long? PaymentDocumentNumber { get; set; }
 }
+
+/// <summary>
+/// The instruction sent to the bank for an executed run: an ISO 20022
+/// customer credit transfer initiation (pain.001).
+///
+/// Generated once and never again. A payment file is not a report — a second
+/// copy carrying a new message identifier is, to the bank, a second instruction,
+/// and the money leaves twice. Re-download the stored one instead; that is what
+/// <see cref="ContentSha256"/> and the download counters are for.
+///
+/// The XML holds full account numbers, so it is the one place in the system
+/// where they appear in the clear. Reading it needs S_EXPORT and every read is
+/// audited; nothing else in the API returns an unmasked account.
+/// </summary>
+public class PaymentFile : AuditableEntity
+{
+    public long PaymentRunId { get; set; }
+    public PaymentRun PaymentRun { get; set; } = null!;
+
+    /// <summary>ISO 20022 <c>GrpHdr/MsgId</c>. The bank rejects a duplicate.</summary>
+    [MaxLength(35)] public required string MessageId { get; set; }
+
+    [MaxLength(30)] public required string Format { get; set; }
+
+    public required string Content { get; set; }
+
+    /// <summary>
+    /// Hex SHA-256 of <see cref="Content"/>. Lets a treasurer prove the file the
+    /// bank received is the file this run generated, which is the question asked
+    /// after a disputed payment.
+    /// </summary>
+    [MaxLength(64)] public required string ContentSha256 { get; set; }
+
+    public int TransactionCount { get; set; }
+
+    /// <summary>ISO 20022 <c>CtrlSum</c>: what the bank must total to.</summary>
+    public decimal ControlSum { get; set; }
+    public long CurrencyId { get; set; }
+
+    public DateTime GeneratedAtUtc { get; set; }
+    [MaxLength(64)] public required string GeneratedBy { get; set; }
+
+    public int DownloadCount { get; set; }
+    public DateTime? FirstDownloadedAtUtc { get; set; }
+    [MaxLength(64)] public string? FirstDownloadedBy { get; set; }
+    public DateTime? LastDownloadedAtUtc { get; set; }
+    [MaxLength(64)] public string? LastDownloadedBy { get; set; }
+}

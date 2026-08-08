@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using S4HERP.BuildingBlocks.Infrastructure;
 
@@ -11,9 +12,11 @@ using S4HERP.BuildingBlocks.Infrastructure;
 namespace S4HERP.Host.Migrations
 {
     [DbContext(typeof(S4herpDbContext))]
-    partial class S4herpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260808081600_PaymentFile")]
+    partial class PaymentFile
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -610,8 +613,8 @@ namespace S4HERP.Host.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<string>("PaymentMethods")
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
+                        .HasMaxLength(1)
+                        .HasColumnType("nvarchar(1)");
 
                     b.Property<string>("PaymentTerms")
                         .HasMaxLength(4)

@@ -215,6 +215,15 @@ public partial class SampleDataSeeder
         await AssignCustomerAsync(dualRole, cc1000, arAccount, orgs, usd, validFrom, roleMap, ct);
         await AssignVendorAsync(dualRole, cc1000, apAccount, orgs, usd, validFrom, roleMap, ct);
 
+        // The dual-role partner accepts transfer *or* cheque, unlike the others.
+        // It is also the one partner with no bank details, and the pair is the
+        // point: the same invoice is excluded from a transfer run for want of an
+        // account and paid by a cheque run, which is the only way to show the
+        // exclusion is about bank details rather than a blanket refusal.
+        await db.Set<PartnerCompanyCode>()
+            .Where(f => f.PartnerId == dualRole && f.CompanyCodeId == cc1000)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.PaymentMethods, "TC"), ct);
+
         db.Add(new PartnerRoleAssignment
         {
             TenantId = _tenantId, PartnerId = intercompany, PartnerRoleId = roleMap["ICOM"],
@@ -226,6 +235,23 @@ public partial class SampleDataSeeder
             TenantId = _tenantId, PartnerId = customer,
             CreditControlAreaId = orgs.CreditControlAreaId, CreditLimit = 500_000m,
             CurrencyId = usd, RiskClass = "B", CreatedBy = "SEED",
+        });
+
+        // Bank details for the vendor the payment run pays, and deliberately none
+        // for the dual-role partner. A payment method that requires bank details
+        // must exclude a partner that has none, and a control nobody in the seed
+        // can trigger is a control nobody has tested.
+        db.Add(new PartnerBank
+        {
+            TenantId = _tenantId, PartnerId = vendor,
+            CountryCode = "KH", BankKey = "ACLBKHPP", BankName = "ACLEDA Bank Plc",
+            // No IBAN: Cambodian banks do not issue them. The payment file writes
+            // Othr/Id for exactly this case, and pretending otherwise would
+            // produce a file the bank rejects.
+            AccountNumber = "0001-00-123456-1",
+            AccountHolder = "Mekong Logistics Ltd",
+            Swift = "ACLBKHPP",
+            IsDefault = true, ValidFrom = validFrom, CreatedBy = "SEED",
         });
 
         await db.SaveChangesAsync(ct);
@@ -360,8 +386,9 @@ public partial class SampleDataSeeder
         {
             TenantId = _tenantId, PartnerId = partnerId, CompanyCodeId = companyCodeId,
             ReconciliationAccountId = reconciliationAccountId, PaymentTerms = "N030",
-            // "T" outgoing transfer, "I" incoming. Both, so one partner can be
-            // paid and can pay — the seed's dual-role partner is exactly that.
+            // "T", outgoing transfer. Narrow on purpose: a partner that permits
+            // every method makes the "does not permit payment method" exclusion
+            // unreachable, and an exclusion nothing can trigger is untested.
             PaymentMethods = "T",
             CreatedBy = "SEED",
         };
@@ -445,6 +472,7 @@ public partial class SampleDataSeeder
             ("FI_APPROVER", "Financial approver"),
             ("FI_SENIOR_APPROVER", "Financial approver, second level"),
             ("FI_SUPERVISOR", "Financial supervisor (posts and approves — violates SOD003)"),
+            ("FI_TREASURY", "Treasury (releases payment files to the bank)"),
             ("BP_MAINTAINER", "Business partner maintainer"),
             ("AUDITOR", "Auditor (display only)"),
             ("ADMIN", "System administrator"),
@@ -527,6 +555,16 @@ public partial class SampleDataSeeder
              ("AMOUNT_TO", AmountLimit.Encode(0), AmountLimit.Encode(50_000m))],
             objectMap, fieldMap, ct);
 
+        // Treasury sees payment runs and may take the file to the bank, and does
+        // nothing else. No posting, no approval, and pointedly no F_BP_BANK:
+        // SOD001 rates "maintain vendor bank details" plus "run payments" as
+        // Critical, because together they are the mechanism of invoice fraud.
+        // Whoever hands the file over must not be able to change where it pays.
+        await GrantAsync(roleMap["FI_TREASURY"], "F_BKPF_BUK",
+            [("BUKRS", "*", null), ("ACTVT", "03", null)], objectMap, fieldMap, ct);
+        await GrantAsync(roleMap["FI_TREASURY"], "S_EXPORT",
+            [("SCOPE", "PAYMENT_FILE", null)], objectMap, fieldMap, ct);
+
         // Passwords are absent by design: Phase 3 identifies callers by header in
         // Development only, and a seeded credential would outlive the seed.
         await CreateUserAsync("seed.accountant", "Seed Accountant", roleMap["FI_ACCOUNTANT"],
@@ -545,6 +583,9 @@ public partial class SampleDataSeeder
             validFrom, ct);
         await CreateUserAsync("seed.supervisor", "Seed Supervisor (posts and approves)",
             roleMap["FI_SUPERVISOR"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
+            validFrom, ct);
+        await CreateUserAsync("seed.treasury", "Seed Treasury (releases payment files)",
+            roleMap["FI_TREASURY"], orgs.CompanyCodes.Values, orgs.CompanyCodes["1000"],
             validFrom, ct);
 
         await SeedApprovalRulesAsync(validFrom, ct);

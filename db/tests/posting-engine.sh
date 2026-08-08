@@ -49,6 +49,9 @@ CFO='X-S4HERP-User: seed.cfo'
 # Holds both F_BKPF_BUK/01 and W_APPROVE — an SOD003 conflict, seeded on purpose
 # so maker-checker has something to catch.
 SUPERVISOR='X-S4HERP-User: seed.supervisor'
+# Sees payment runs and holds S_EXPORT, so may take the bank file away. Holds
+# no F_BP_BANK: SOD001 rates that combination Critical.
+TREASURY='X-S4HERP-User: seed.treasury'
 JSON='Content-Type: application/json'
 
 pass=0; fail=0
@@ -970,6 +973,158 @@ if [ -n "$DIFF8" ] && awk -v d="$DIFF8" 'BEGIN{exit !(d==0)}'; then
   echo "  PASS  ...difference $DIFF8"; pass=$((pass+1))
 else
   echo "  FAIL  difference ${DIFF8:-missing}"; FAILURES+=("post-approval balance"); fail=$((fail+1))
+fi
+
+echo "== Payment file (ISO 20022 pain.001) =="
+
+# APPRUN is the approved, executed run from the approval block. Its payment is
+# the one the file must instruct.
+check "A file cannot be generated for a rejected run" 422 PAYMENT_RUN_NOT_EXECUTED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$REJRUN/payment-file" -H "$ACCOUNTANT"
+
+check "Reading a file that was never generated says so" 422 PAYMENT_FILE_NOT_GENERATED \
+  "$BASE/api/v1/finance/payment-runs/$REJRUN/payment-file" -H "$ACCOUNTANT"
+
+check "An executed run generates its instruction" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file" -H "$ACCOUNTANT"
+assert_body "...one credit transfer, pain.001.001.09" \
+  '"format":"pain.001.001.09".*"transactionCount":1'
+assert_body "...totalling what the run paid" '"controlSum":12000'
+FILEHASH=$(json_field contentSha256)
+if [ ${#FILEHASH} -eq 64 ]; then
+  echo "  PASS  ...with a sha256 the treasurer can quote to the bank"; pass=$((pass+1))
+else
+  echo "  FAIL  contentSha256 was '${FILEHASH}', not 64 hex characters"
+  FAILURES+=("file hash"); fail=$((fail+1))
+fi
+# Metadata is not a place for account numbers. The whole design rests on the XML
+# being the only route to them, so assert the metadata has none.
+if printf '%s' "$LAST_BODY" | grep -q "0001-00-123456-1"; then
+  echo "  FAIL  the metadata response leaked the creditor account number"
+  FAILURES+=("metadata leak"); fail=$((fail+1))
+else
+  echo "  PASS  ...and no account number anywhere in the metadata"; pass=$((pass+1))
+fi
+
+check "Generating a second file for the same run is refused" 422 PAYMENT_FILE_ALREADY_GENERATED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file" -H "$ACCOUNTANT"
+
+check "The accountant who made the file may not take it away" 403 NOT_AUTHORIZED \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file/content" -H "$ACCOUNTANT"
+
+check "Nor may an approver" 403 NOT_AUTHORIZED \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file/content" -H "$APPROVER"
+
+check "Treasury, holding S_EXPORT, may" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file/content" -H "$TREASURY"
+assert_body "...and it is a pain.001.001.09 document" \
+  'urn:iso:std:iso:20022:tech:xsd:pain.001.001.09'
+assert_body "...naming the creditor account, since a bank needs one" \
+  '<Id>0001-00-123456-1</Id>'
+# Othr/Id rather than IBAN, and no empty IBAN element anywhere: Cambodian banks
+# issue no IBANs, and <IBAN/> is a file every one of them rejects.
+assert_body "...as Othr/Id, because Cambodian banks issue no IBAN" '<Othr>'
+if printf '%s' "$LAST_BODY" | grep -q '<IBAN'; then
+  echo "  FAIL  the file carries an IBAN element for a bank that issues none"
+  FAILURES+=("spurious IBAN"); fail=$((fail+1))
+else
+  echo "  PASS  ...and no IBAN element at all"; pass=$((pass+1))
+fi
+assert_body "...with the amount and currency the run paid" \
+  '<InstdAmt Ccy="USD">12000.00</InstdAmt>'
+assert_body "...one credit transfer" '<NbOfTxs>1</NbOfTxs>'
+assert_body "...a control sum the bank can check" '<CtrlSum>12000.00</CtrlSum>'
+assert_body "...remittance naming the invoice it settles" '<Ustrd>Invoices 2026/'
+if printf '%s' "$LAST_BODY" | grep -q '<Dbtr>'; then
+  echo "  PASS  ...and the paying company as debtor"; pass=$((pass+1))
+else
+  echo "  FAIL  no debtor in the file"; FAILURES+=("file debtor"); fail=$((fail+1))
+fi
+
+check "The download is counted" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file" -H "$ACCOUNTANT"
+assert_body "...naming treasury as the first to take a copy" \
+  '"downloadCount":1.*"firstDownloadedBy":"seed.treasury"'
+
+check "A second download is allowed and counted, not refused" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file/content" -H "$TREASURY"
+check "...and the count reflects it" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$APPRUN/payment-file" -H "$ACCOUNTANT"
+assert_body "...two copies taken" '"downloadCount":2'
+
+check "An unknown run has no file" 404 NOT_FOUND \
+  "$BASE/api/v1/finance/payment-runs/nonexistent-run/payment-file" -H "$ACCOUNTANT"
+
+echo "== Payment method requires bank details =="
+
+# The dual-role partner is seeded with no bank details on purpose. Method T
+# requires them, so its invoice must be proposed-and-excluded rather than
+# silently absent — and rather than paid into nowhere.
+check "An invoice posts for a vendor with no bank details" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","documentType":"KR","documentDate":"2026-04-03",
+       "postingDate":"2026-04-03","currency":"USD","reference":"AP-NOBANK",
+       "lines":[
+         {"postingKey":"40","amount":75.00,"glAccount":"6000000000","costCenter":"CC101000"},
+         {"postingKey":"31","amount":75.00,"businessPartner":"1000000003","paymentTerms":"N014"}]}'
+NOBANKINV=$(json_field documentNumber)
+
+check "A transfer run proposes it only to exclude it" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-25","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000003"}'
+NOBANKRUN=$(json_field runId)
+assert_body "...with the reason, not by omission" 'no bank details valid on 2026-04-25'
+assert_body "...and nothing to pay" '"totalToPay":0'
+
+check "...so there is nothing to execute" 422 PAYMENT_RUN_EMPTY \
+  -X POST "$BASE/api/v1/finance/payment-runs/$NOBANKRUN/execute" -H "$ACCOUNTANT"
+
+# Cheque does not need an account number, so the same invoice is payable by C.
+# Without this the exclusion could be a blanket refusal and look identical.
+check "A cheque run pays the same invoice" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-25","dueBy":"2026-04-30",
+       "paymentMethod":"C","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000003"}'
+CHEQUERUN=$(json_field runId)
+assert_body "...because a cheque needs no account number" '"totalToPay":75'
+
+# And the older exclusion is still reachable: the transfer-only vendor is
+# excluded from the same cheque run by method, not by bank details.
+check "A vendor that permits no cheques is excluded by method" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-25","dueBy":"2026-04-30",
+       "paymentMethod":"C","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000002"}'
+assert_body "...naming the method, not the bank details" \
+  'does not permit payment method C'
+RUNID_A=$(json_field runId)
+
+# Back-to-back proposals with identical company code, date and method. The run
+# id used to end in a seconds timestamp, so this pair collided on the unique
+# index and came back 500. Two runs, two ids, is the whole check.
+check "Two proposals in the same second both succeed" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-25","dueBy":"2026-04-30",
+       "paymentMethod":"C","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000002"}'
+RUNID_B=$(json_field runId)
+if [ -n "$RUNID_A" ] && [ -n "$RUNID_B" ] && [ "$RUNID_A" != "$RUNID_B" ]; then
+  echo "  PASS  ...with different run ids ($RUNID_A, $RUNID_B)"; pass=$((pass+1))
+else
+  echo "  FAIL  run ids collided: '$RUNID_A' and '$RUNID_B'"
+  FAILURES+=("run id collision"); fail=$((fail+1))
+fi
+
+check "Trial balance still foots after the file and the exclusions" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF9=$(json_field difference)
+if [ -n "$DIFF9" ] && awk -v d="$DIFF9" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...difference $DIFF9"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF9:-missing}"; FAILURES+=("post-file balance"); fail=$((fail+1))
 fi
 
 echo

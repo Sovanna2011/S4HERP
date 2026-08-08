@@ -262,3 +262,29 @@ public class PaymentRunItemConfiguration : IEntityTypeConfiguration<PaymentRunIt
             "[IsExcluded] = 0 OR [ExclusionReason] IS NOT NULL"));
     }
 }
+
+public class PaymentFileConfiguration : IEntityTypeConfiguration<PaymentFile>
+{
+    public void Configure(EntityTypeBuilder<PaymentFile> b)
+    {
+        b.ToTable("PaymentFile", Schemas.Fin);
+
+        // One per run, enforced here and not only in the handler. "Generate it
+        // twice" is a race as much as it is a mistake, and two concurrent
+        // requests would otherwise both pass the handler's check and produce two
+        // instructions for the same money.
+        // The only unbounded string in the schema, and deliberate: a run with a
+        // thousand creditors produces a file no fixed length would survive. The
+        // convention that forbids unbounded strings is opted out of here rather
+        // than weakened everywhere.
+        b.Property(x => x.Content).HasColumnType("nvarchar(max)");
+
+        b.HasIndex(x => new { x.TenantId, x.PaymentRunId }).IsUnique();
+        b.HasIndex(x => new { x.TenantId, x.MessageId }).IsUnique();
+
+        b.HasOne(x => x.PaymentRun).WithMany().HasForeignKey(x => x.PaymentRunId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Currency>().WithMany().HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}

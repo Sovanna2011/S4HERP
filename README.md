@@ -12,13 +12,14 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 5](docs/phase3/increment-5-ar-ap.md) | Delivered. Payment terms, due dates, payments, clearing, reset, open items and aging |
 | 3 — [Increment 6](docs/phase3/increment-6-payment-run.md) | Delivered. House banks, payment methods and the payment run (F110) |
 | 3 — [Increment 7](docs/phase3/increment-7-payment-run-approval.md) | Delivered. Approval on the payment run: release threshold, maker-checker, execution gate |
+| 3 — [Increment 8](docs/phase3/increment-8-payment-file.md) | Delivered. ISO 20022 pain.001 payment file, S_EXPORT on the download, bank details in the proposal |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**234 automated checks passing** across four suites, against the container image.
-Modules still to build — the payment file and dunning, Asset Accounting,
-Controlling allocations, SE11 and SE16N — are designed in the blueprint and
-listed in each phase report.
+**273 automated checks passing** across four suites, against the container image.
+Modules still to build — partner bank maintenance, bank status reports, dunning,
+Asset Accounting, Controlling allocations, SE11 and SE16N — are designed in the
+blueprint and listed in each phase report.
 
 ASP.NET Core 10 over SQL Server 2025, containerised with Docker Compose.
 
@@ -49,7 +50,7 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 188 posting-engine checks over HTTP
+./db/tests/posting-engine.sh                     # 227 posting-engine checks over HTTP
 node ui5/test/ui-acceptance.mjs                  # 27 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
@@ -150,8 +151,14 @@ Compose composes from the variables above. Set
 | `GET` | `/api/v1/finance/open-items` | Open items with aging (FBL5N / FBL1N) |
 | `POST` | `/api/v1/finance/payment-runs` | Propose a payment run (F110); posts nothing |
 | `GET` | `/api/v1/finance/payment-runs/{runId}` | The proposal, its payments and its exclusions |
+| `POST` | `/api/v1/finance/payment-runs/{runId}/submit` | Send the proposal for approval |
+| `POST` | `/api/v1/finance/payment-runs/{runId}/approve` | Approve the caller's step; the last one releases the run |
+| `POST` | `/api/v1/finance/payment-runs/{runId}/reject` | Reject the run, with a mandatory reason |
 | `POST` | `/api/v1/finance/payment-runs/{runId}/execute` | Post the proposal |
 | `DELETE` | `/api/v1/finance/payment-runs/{runId}` | Discard a proposal |
+| `POST` | `/api/v1/finance/payment-runs/{runId}/payment-file` | Generate the ISO 20022 pain.001 instruction |
+| `GET` | `/api/v1/finance/payment-runs/{runId}/payment-file` | File metadata: counts, control sum, hash, copies taken |
+| `GET` | `/api/v1/finance/payment-runs/{runId}/payment-file/content` | The XML itself. Requires `S_EXPORT`, and every read is audited |
 | `GET` | `/api/v1/finance/reports/trial-balance` | Trial balance, derived from the journal |
 
 Every call is authorised server-side and denied by default. In Development the

@@ -259,6 +259,19 @@ public partial class SampleDataSeeder
             IsGapless = false, PaddingLength = 10, CreatedBy = "SEED",
         });
 
+        // Payment runs. Not gapless and not per company code: a run identifier is
+        // an internal handle, not an accounting document number, so the legal
+        // argument for gaplessness does not apply and a discarded proposal may
+        // leave a hole. What it must be is unique — the run id used to end in a
+        // seconds timestamp, and two proposals created in the same second
+        // collided on the unique index and surfaced as a 500.
+        db.Add(new NumberRange
+        {
+            TenantId = _tenantId, Code = "PR", ObjectType = NumberRangeObject.PaymentRun,
+            FiscalYear = 0, FromNumber = 1, ToNumber = 999_999, CurrentNumber = 0,
+            IsGapless = false, PaddingLength = 6, CreatedBy = "SEED",
+        });
+
         var postingKeys = new (string Code, string Name, AccountType Type, bool Debit)[]
         {
             ("40", "G/L debit", AccountType.GeneralLedger, true),

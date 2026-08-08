@@ -18,6 +18,7 @@ record of what increment 1 delivered rather than edited to match today:
 | 5 — payment terms, payments, clearing, aging | [increment-5-ar-ap.md](increment-5-ar-ap.md) |
 | 6 — house banks, payment methods, payment run | [increment-6-payment-run.md](increment-6-payment-run.md) |
 | 7 — approval on the payment run | [increment-7-payment-run-approval.md](increment-7-payment-run-approval.md) |
+| 8 — ISO 20022 payment file, partner bank details | [increment-8-payment-file.md](increment-8-payment-file.md) |
 
 ## What was built
 
@@ -239,7 +240,7 @@ Increment 2 of Phase 3, in dependency order:
 4. **AR/AP**: invoices, payments, clearing, the payment run.
    *(Done: [increment 5](increment-5-ar-ap.md),
    [increment 6](increment-6-payment-run.md) and
-   [increment 7](increment-7-payment-run-approval.md). The payment file and
-   dunning remain.)*
+   [increment 7](increment-7-payment-run-approval.md) and
+   [increment 8](increment-8-payment-file.md). Dunning remains.)*
 
 The [roadmap](../blueprint/14-roadmap.md) is otherwise unchanged.

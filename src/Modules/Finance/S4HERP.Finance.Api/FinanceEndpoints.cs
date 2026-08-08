@@ -299,6 +299,45 @@ public static class FinanceEndpoints
             .WithName("DeletePaymentProposal")
             .WithSummary("Discard a proposal that was never executed.");
 
+        runs.MapPost("/{runId}/payment-file", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(
+                    new GeneratePaymentFileCommand { RunId = runId }, ct);
+
+                return Results.Created(
+                    $"/api/v1/finance/payment-runs/{runId}/payment-file", result);
+            })
+            .WithName("GeneratePaymentFile")
+            .WithSummary("Generate the ISO 20022 pain.001 instruction for an executed run.");
+
+        runs.MapGet("/{runId}/payment-file", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new GetPaymentFileQuery { RunId = runId }, ct)))
+            .WithName("GetPaymentFile")
+            .WithSummary("Payment file metadata: counts, control sum, hash, who took a copy.");
+
+        // The content is a separate route from the metadata so the permission can
+        // be separate too. Anyone who may see the run may see that a file exists
+        // and what it totals; taking the account numbers away needs S_EXPORT.
+        runs.MapGet("/{runId}/payment-file/content", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var file = await dispatcher.SendAsync(
+                    new DownloadPaymentFileCommand { RunId = runId }, ct);
+
+                // As a download rather than a rendered body: the name carries the
+                // run and the message id, which is what a treasurer has to quote
+                // when the bank asks which instruction they are looking at.
+                return Results.File(
+                    System.Text.Encoding.UTF8.GetBytes(file.Content),
+                    "application/xml",
+                    file.FileName);
+            })
+            .WithName("DownloadPaymentFile")
+            .WithSummary("The pain.001 XML itself. Requires S_EXPORT and is audited.");
+
         routes.MapGet("/api/v1/finance/open-items", async (
                 string companyCode, string? accountType, string? businessPartner,
                 DateOnly? asOf, bool? includeCleared,

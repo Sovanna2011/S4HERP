@@ -155,6 +155,7 @@ internal static class PaymentRunApproval
 public sealed class CreatePaymentProposalHandler(
     S4herpDbContext db,
     IAuthorizationEnforcer authorization,
+    INumberRangeAllocator numbers,
     IUserContext user,
     ITenantContext tenant,
     IClock clock,
@@ -196,12 +197,20 @@ public sealed class CreatePaymentProposalHandler(
             : AccountType.Customer;
 
         var candidates = await LoadCandidatesAsync(
-            companyCode.Id, accountType, command, ct);
+            companyCode.Id, accountType, method.RequiresBankDetails, command, ct);
+
+        // A number range rather than a timestamp. The identifier used to end in
+        // HHmmss, which reads as unique and is not: two proposals created in the
+        // same second for the same company code, date and method produced the
+        // same id and the unique index turned that into a 500. Not gapless — a
+        // run id is an internal handle, not a document number.
+        var sequence = await numbers.AllocateAsync(
+            NumberRangeObject.PaymentRun, "PR", null, 0, ct);
 
         var run = new PaymentRun
         {
             TenantId = tenant.TenantId,
-            RunId = $"{companyCode.Code}-{command.RunDate:yyyyMMdd}-{method.Code}-{clock.UtcNow:HHmmss}",
+            RunId = $"{companyCode.Code}-{command.RunDate:yyyyMMdd}-{method.Code}-{sequence:D6}",
             CompanyCodeId = companyCode.Id,
             RunDate = command.RunDate,
             DueBy = command.DueBy,
@@ -265,7 +274,7 @@ public sealed class CreatePaymentProposalHandler(
     /// going unpaid needs an answer, and "it was not in the selection" is not one.
     /// </summary>
     private async Task<List<Candidate>> LoadCandidatesAsync(
-        long companyCodeId, AccountType accountType,
+        long companyCodeId, AccountType accountType, bool requiresBankDetails,
         CreatePaymentProposalCommand command, CancellationToken ct)
     {
         var rows = await (
@@ -290,15 +299,30 @@ public sealed class CreatePaymentProposalHandler(
                               && a.HouseBank.Code == command.HouseBank
                               && a.Code == command.HouseBankAccount, ct);
 
+        // Which partners can be paid by transfer at all. Loaded once for the whole
+        // proposal rather than per candidate: a run with two hundred items would
+        // otherwise issue two hundred queries to answer the same question.
+        var partnersWithBank = requiresBankDetails
+            ? (await db.Set<BusinessPartner.Domain.PartnerBank>()
+                .Where(b => b.ValidFrom <= command.RunDate && b.ValidTo >= command.RunDate)
+                .Select(b => b.PartnerId)
+                .Distinct()
+                .ToListAsync(ct))
+                .ToHashSet()
+            : [];
+
         return rows.Select(r => new Candidate(r.Item, r.PartnerNumber,
-            ExclusionFor(r.Item, r.Facet, account, command))).ToList();
+            ExclusionFor(r.Item, r.Facet, account, command, requiresBankDetails,
+                partnersWithBank))).ToList();
     }
 
     private static string? ExclusionFor(
         OpenItem item,
         BusinessPartner.Domain.PartnerCompanyCode? facet,
         HouseBankAccount account,
-        CreatePaymentProposalCommand command)
+        CreatePaymentProposalCommand command,
+        bool requiresBankDetails,
+        HashSet<long> partnersWithBank)
     {
         if (item.DueDate is not { } due)
         {
@@ -331,6 +355,15 @@ public sealed class CreatePaymentProposalHandler(
         if (item.DocumentCurrencyId != account.CurrencyId)
         {
             return "The item's currency differs from the paying account's.";
+        }
+
+        // A transfer needs somewhere to transfer to. Caught here rather than at
+        // file generation, because by then the payment is posted and the invoice
+        // cleared — the ledger would say paid and the bank would never hear of it.
+        if (requiresBankDetails && !partnersWithBank.Contains(item.BusinessPartnerId!.Value))
+        {
+            return $"The partner has no bank details valid on {command.RunDate:yyyy-MM-dd}, " +
+                   $"which payment method {command.PaymentMethod} requires.";
         }
 
         return null;
