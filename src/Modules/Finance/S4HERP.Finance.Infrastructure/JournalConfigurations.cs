@@ -199,3 +199,66 @@ public class PostingIdempotencyConfiguration : IEntityTypeConfiguration<PostingI
         b.HasIndex(x => new { x.TenantId, x.IdempotencyKey }).IsUnique();
     }
 }
+
+public class HouseBankConfiguration : IEntityTypeConfiguration<HouseBank>
+{
+    public void Configure(EntityTypeBuilder<HouseBank> b)
+    {
+        b.ToTable("HouseBank", Schemas.Fin);
+        b.HasIndex(x => new { x.TenantId, x.CompanyCodeId, x.Code }).IsUnique();
+
+        b.HasOne(x => x.CompanyCode).WithMany().HasForeignKey(x => x.CompanyCodeId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class HouseBankAccountConfiguration : IEntityTypeConfiguration<HouseBankAccount>
+{
+    public void Configure(EntityTypeBuilder<HouseBankAccount> b)
+    {
+        b.ToTable("HouseBankAccount", Schemas.Fin);
+        b.HasIndex(x => new { x.TenantId, x.HouseBankId, x.Code }).IsUnique();
+
+        b.HasOne(x => x.HouseBank).WithMany(x => x.Accounts)
+            .HasForeignKey(x => x.HouseBankId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.GLAccount).WithMany().HasForeignKey(x => x.GLAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Currency>().WithMany().HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class PaymentRunConfiguration : IEntityTypeConfiguration<PaymentRun>
+{
+    public void Configure(EntityTypeBuilder<PaymentRun> b)
+    {
+        b.ToTable("PaymentRun", Schemas.Fin);
+        b.HasIndex(x => new { x.TenantId, x.RunId }).IsUnique();
+        b.HasIndex(x => new { x.TenantId, x.CompanyCodeId, x.Status });
+
+        b.HasOne(x => x.CompanyCode).WithMany().HasForeignKey(x => x.CompanyCodeId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.HouseBankAccount).WithMany().HasForeignKey(x => x.HouseBankAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class PaymentRunItemConfiguration : IEntityTypeConfiguration<PaymentRunItem>
+{
+    public void Configure(EntityTypeBuilder<PaymentRunItem> b)
+    {
+        b.ToTable("PaymentRunItem", Schemas.Fin);
+        b.HasIndex(x => new { x.TenantId, x.PaymentRunId, x.IsExcluded });
+
+        b.HasOne(x => x.PaymentRun).WithMany(x => x.Items)
+            .HasForeignKey(x => x.PaymentRunId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.OpenItem).WithMany().HasForeignKey(x => x.OpenItemId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // An excluded item states why. Silence would be indistinguishable from
+        // an item that was simply never considered.
+        b.ToTable(t => t.HasCheckConstraint(
+            "CK_PaymentRunItem_Exclusion",
+            "[IsExcluded] = 0 OR [ExclusionReason] IS NOT NULL"));
+    }
+}

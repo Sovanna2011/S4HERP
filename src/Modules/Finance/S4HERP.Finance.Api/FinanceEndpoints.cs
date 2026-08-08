@@ -242,6 +242,37 @@ public static class FinanceEndpoints
             .WithName("ResetClearing")
             .WithSummary("Reopen the items a payment cleared (FBRA).");
 
+        var runs = routes.MapGroup("/api/v1/finance/payment-runs").WithTags("Payments");
+
+        runs.MapPost("/", async (
+                CreatePaymentProposalCommand command, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                var result = await dispatcher.SendAsync(command, ct);
+                return Results.Created($"/api/v1/finance/payment-runs/{result.RunId}", result);
+            })
+            .WithName("CreatePaymentProposal")
+            .WithSummary("Propose a payment run (F110). Posts nothing.");
+
+        runs.MapGet("/{runId}", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(new GetPaymentRunQuery { RunId = runId }, ct)))
+            .WithName("GetPaymentRun")
+            .WithSummary("A payment run, its proposed payments and its exclusions.");
+
+        runs.MapPost("/{runId}/execute", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new ExecutePaymentRunCommand { RunId = runId }, ct)))
+            .WithName("ExecutePaymentRun")
+            .WithSummary("Post the proposal: one payment document per partner.");
+
+        runs.MapDelete("/{runId}", async (
+                string runId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new DeletePaymentProposalCommand { RunId = runId }, ct)))
+            .WithName("DeletePaymentProposal")
+            .WithSummary("Discard a proposal that was never executed.");
+
         routes.MapGet("/api/v1/finance/open-items", async (
                 string companyCode, string? accountType, string? businessPartner,
                 DateOnly? asOf, bool? includeCleared,

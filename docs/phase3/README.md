@@ -16,6 +16,7 @@ record of what increment 1 delivered rather than edited to match today:
 | 3 — park, submit, approve, maker-checker | [increment-3-workflow.md](increment-3-workflow.md) |
 | 4 — withdraw, discard, approval screens | [increment-4-lifecycle.md](increment-4-lifecycle.md) |
 | 5 — payment terms, payments, clearing, aging | [increment-5-ar-ap.md](increment-5-ar-ap.md) |
+| 6 — house banks, payment methods, payment run | [increment-6-payment-run.md](increment-6-payment-run.md) |
 
 ## What was built
 
@@ -235,6 +236,7 @@ Increment 2 of Phase 3, in dependency order:
 3. **Workflow and maker-checker**, which the SoD rules already describe.
    *(Done: [increment 3](increment-3-workflow.md).)*
 4. **AR/AP**: invoices, payments, clearing, the payment run.
-   *(Done, except the payment run: [increment 5](increment-5-ar-ap.md).)*
+   *(Done: [increment 5](increment-5-ar-ap.md) and
+   [increment 6](increment-6-payment-run.md). Dunning remains.)*
 
 The [roadmap](../blueprint/14-roadmap.md) is otherwise unchanged.

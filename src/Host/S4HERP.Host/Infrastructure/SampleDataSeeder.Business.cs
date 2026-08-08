@@ -360,6 +360,9 @@ public partial class SampleDataSeeder
         {
             TenantId = _tenantId, PartnerId = partnerId, CompanyCodeId = companyCodeId,
             ReconciliationAccountId = reconciliationAccountId, PaymentTerms = "N030",
+            // "T" outgoing transfer, "I" incoming. Both, so one partner can be
+            // paid and can pay — the seed's dual-role partner is exactly that.
+            PaymentMethods = "T",
             CreatedBy = "SEED",
         };
         db.Add(facet);

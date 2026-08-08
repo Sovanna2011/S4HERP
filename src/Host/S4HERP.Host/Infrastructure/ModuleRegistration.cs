@@ -150,6 +150,18 @@ public static class ModuleRegistration
             ICommandHandler<ResetClearingCommand, ResetClearingResult>,
             ResetClearingHandler>();
         services.AddScoped<
+            ICommandHandler<CreatePaymentProposalCommand, PaymentProposalResult>,
+            CreatePaymentProposalHandler>();
+        services.AddScoped<
+            ICommandHandler<ExecutePaymentRunCommand, PaymentRunExecutionResult>,
+            ExecutePaymentRunHandler>();
+        services.AddScoped<
+            ICommandHandler<DeletePaymentProposalCommand, PaymentRunExecutionResult>,
+            DeletePaymentProposalHandler>();
+        services.AddScoped<
+            IQueryHandler<GetPaymentRunQuery, PaymentProposalResult>,
+            GetPaymentRunQueryHandler>();
+        services.AddScoped<
             IQueryHandler<OpenItemsQuery, OpenItemsResult>,
             OpenItemsQueryHandler>();
         services.AddScoped<

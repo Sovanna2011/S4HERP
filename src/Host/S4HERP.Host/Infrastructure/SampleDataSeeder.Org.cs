@@ -169,10 +169,35 @@ public partial class SampleDataSeeder
         }
     }
 
+    /// <summary>
+    /// Payment methods. Like the terms, `PartnerCompanyCode.PaymentMethods` has
+    /// carried these single-character codes since Phase 2 with nothing behind
+    /// them; the payment run selects by method, so they have to exist.
+    /// </summary>
+    private void SeedPaymentMethods()
+    {
+        var methods = new (string Code, string Name, PaymentDirection Dir, bool Bank)[]
+        {
+            ("T", "Bank transfer (outgoing)", PaymentDirection.Outgoing, true),
+            ("C", "Cheque (outgoing)", PaymentDirection.Outgoing, false),
+            ("I", "Incoming transfer", PaymentDirection.Incoming, true),
+        };
+
+        foreach (var m in methods)
+        {
+            db.Add(new PaymentMethod
+            {
+                TenantId = _tenantId, Code = m.Code, Name = m.Name,
+                Direction = m.Dir, RequiresBankDetails = m.Bank, CreatedBy = "SEED",
+            });
+        }
+    }
+
     private async Task SeedDocumentConfigurationAsync(
         OrgIds orgs, ChartOfAccountsIds coa, CancellationToken ct)
     {
         SeedPaymentTerms();
+        SeedPaymentMethods();
 
         var documentTypes = new (string Code, string Name, string Range, string Types, bool Ic)[]
         {

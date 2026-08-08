@@ -733,6 +733,114 @@ else
   echo "  FAIL  difference ${DIFF6:-missing}"; FAILURES+=("post-reset balance"); fail=$((fail+1))
 fi
 
+echo "== Payment run: proposal =="
+
+# A vendor invoice, so the run has something outgoing to find. Posting key 31 is
+# the vendor credit; the expense is the debit.
+check "A vendor invoice posts" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","documentType":"KR","documentDate":"2026-04-01",
+       "postingDate":"2026-04-01","currency":"USD","reference":"AP-RUN",
+       "lines":[
+         {"postingKey":"40","amount":300.00,"glAccount":"6000000000","costCenter":"CC101000"},
+         {"postingKey":"31","amount":300.00,"businessPartner":"1000000002","paymentTerms":"N014"}]}'
+VINV=$(json_field documentNumber)
+
+check "A proposal is created without posting anything" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-20","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN"}'
+RUNID=$(json_field runId)
+assert_body "...proposing the vendor invoice" '"status":"Proposed"'
+
+check "The proposal is readable" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$RUNID" -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q "\"documentNumber\":$VINV,"; then
+  echo "  PASS  ...and lists the invoice due 2026-04-15"; pass=$((pass+1))
+else
+  echo "  FAIL  the vendor invoice is not in the proposal"; FAILURES+=("proposal selection"); fail=$((fail+1))
+fi
+
+# Exclusions are the point of a proposal. Something must always be excluded here:
+# the seeded KHR vendor item cannot be paid from a USD account.
+if printf '%s' "$LAST_BODY" | grep -q '"excluded":\[\]'; then
+  echo "  FAIL  nothing was excluded, so exclusions are untested"
+  FAILURES+=("no exclusions"); fail=$((fail+1))
+else
+  echo "  PASS  ...and records what it left out, with reasons"; pass=$((pass+1))
+fi
+
+check "Nothing was posted by proposing" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+TB_AFTER_PROPOSAL=$(json_field totalDebit)
+
+echo "== Payment run: execution =="
+
+check "Executing posts the payments" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$RUNID/execute" -H "$ACCOUNTANT"
+assert_body "...one document per partner" '"status":"Executed".*"paymentsPosted":1'
+
+check "...and the run cannot be executed twice" 422 PAYMENT_RUN_NOT_PROPOSED \
+  -X POST "$BASE/api/v1/finance/payment-runs/$RUNID/execute" -H "$ACCOUNTANT"
+
+check "...nor discarded once executed" 422 PAYMENT_RUN_NOT_PROPOSED \
+  -X DELETE "$BASE/api/v1/finance/payment-runs/$RUNID" -H "$ACCOUNTANT"
+
+check "The paid invoice is no longer open" 200 - \
+  "$BASE/api/v1/finance/open-items?companyCode=1000&accountType=K" -H "$ACCOUNTANT"
+if printf '%s' "$LAST_BODY" | grep -q "\"documentNumber\":$VINV,"; then
+  echo "  FAIL  the paid vendor invoice is still open"; FAILURES+=("run did not clear"); fail=$((fail+1))
+else
+  echo "  PASS  ...the run cleared it"; pass=$((pass+1))
+fi
+
+check "The run now shows its payment document" 200 - \
+  "$BASE/api/v1/finance/payment-runs/$RUNID" -H "$ACCOUNTANT"
+assert_body "...against the partner it paid" '"paymentDocumentNumber":[0-9]'
+
+check "Trial balance still foots after the run" 200 - \
+  "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
+DIFF7=$(json_field difference)
+if [ -n "$DIFF7" ] && awk -v d="$DIFF7" 'BEGIN{exit !(d==0)}'; then
+  echo "  PASS  ...difference $DIFF7"; pass=$((pass+1))
+else
+  echo "  FAIL  difference ${DIFF7:-missing}"; FAILURES+=("post-run balance"); fail=$((fail+1))
+fi
+
+echo "== Payment run: refusals =="
+
+check "An unknown payment method is refused" 422 UNKNOWN_PAYMENT_METHOD \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-20","dueBy":"2026-04-30",
+       "paymentMethod":"Z","houseBank":"ACLED","houseBankAccount":"MAIN"}'
+
+check "An unknown house bank account is refused" 422 UNKNOWN_HOUSE_BANK_ACCOUNT \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-04-20","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"NOPE","houseBankAccount":"MAIN"}'
+
+check "A clerk may not run payments in another company code" 403 NOT_AUTHORIZED \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$CLERK" -H "$JSON" \
+  -d '{"companyCode":"2000","runDate":"2026-04-20","dueBy":"2026-04-30",
+       "paymentMethod":"T","houseBank":"BBL","houseBankAccount":"MAIN"}'
+
+check "A run with nothing due proposes nothing" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-01-05","dueBy":"2026-01-05",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN"}'
+EMPTYRUN=$(json_field runId)
+assert_body "...and totals zero" '"totalToPay":0'
+
+check "...and executing it is refused rather than posting nothing" 422 PAYMENT_RUN_EMPTY \
+  -X POST "$BASE/api/v1/finance/payment-runs/$EMPTYRUN/execute" -H "$ACCOUNTANT"
+
+check "An unexecuted proposal can be discarded" 200 - \
+  -X DELETE "$BASE/api/v1/finance/payment-runs/$EMPTYRUN" -H "$ACCOUNTANT"
+assert_body "...and is kept as evidence of what was considered" '"status":"Deleted"'
+
+check "An unknown run is not found" 404 NOT_FOUND \
+  "$BASE/api/v1/finance/payment-runs/nonexistent-run" -H "$ACCOUNTANT"
+
 echo
 printf '%s/%s passed\n' "$pass" "$((pass+fail))"
 if [ "$fail" -gt 0 ]; then

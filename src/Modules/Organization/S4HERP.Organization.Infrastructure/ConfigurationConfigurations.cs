@@ -223,3 +223,12 @@ public class TransactionCodeConfiguration : IEntityTypeConfiguration<Transaction
         b.HasIndex(x => new { x.TenantId, x.Category });
     }
 }
+
+public class PaymentMethodConfiguration : IEntityTypeConfiguration<PaymentMethod>
+{
+    public void Configure(EntityTypeBuilder<PaymentMethod> b)
+    {
+        b.ToTable("PaymentMethod", Schemas.Cfg);
+        b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+    }
+}

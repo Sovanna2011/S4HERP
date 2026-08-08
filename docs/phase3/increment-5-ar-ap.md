@@ -236,10 +236,9 @@ src/Host/S4HERP.Host/Migrations/*_PaymentTermsAndClearing.cs
    `ClearingHeader.DifferenceDocumentNumber` exists in the schema and stays null.
    A payment in a foreign currency clears at the item's own rate, so a realised
    exchange difference is not posted.
-3. **No payment run (F110).** Payments are applied one at a time. A proposal
-   run — select due items, group by partner and payment method, produce a
-   payment file — is the next substantial piece, and it needs house banks and
-   payment methods, neither of which exists.
+3. ~~**No payment run (F110).**~~ Added by
+   [increment 6](increment-6-payment-run.md), along with house banks and payment
+   methods. It still produces no payment *file*.
 4. **No dunning.** `OpenItem.DunningLevel` and `LastDunningDate` are in the
    schema and nothing writes them.
 5. **No credit memos or down payments** as distinct transactions. Both post as

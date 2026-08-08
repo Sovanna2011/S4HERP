@@ -287,6 +287,37 @@ public class PaymentTerm : AuditableEntity, IDeactivatable
     }
 }
 
+public enum PaymentDirection
+{
+    Outgoing = 1,
+    Incoming = 2,
+}
+
+/// <summary>
+/// How money moves (SAP's ZLSCH). <c>PartnerCompanyCode.PaymentMethods</c> has
+/// carried these codes since Phase 2 with nothing defining them; a payment run
+/// that selects by method needs them to exist.
+/// </summary>
+public class PaymentMethod : AuditableEntity, IDeactivatable
+{
+    [MaxLength(1)] public required string Code { get; set; }
+    [MaxLength(60)] public required string Name { get; set; }
+
+    public PaymentDirection Direction { get; set; }
+
+    /// <summary>Null means it is not restricted to one country.</summary>
+    [MaxLength(2)] public string? CountryCode { get; set; }
+
+    /// <summary>
+    /// A transfer needs the payee's bank details; a cheque does not. Enforced by
+    /// the payment run, which excludes a partner it cannot pay rather than
+    /// producing a payment that will bounce.
+    /// </summary>
+    public bool RequiresBankDetails { get; set; }
+
+    public bool IsActive { get; set; } = true;
+}
+
 public enum TransactionCodeTarget
 {
     Ui5Route = 1,

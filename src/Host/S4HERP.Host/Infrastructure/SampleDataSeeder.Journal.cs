@@ -122,6 +122,52 @@ public partial class SampleDataSeeder
         await db.SaveChangesAsync(ct);
 
         await AdvanceNumberRangesPastSeedAsync(ct);
+        await SeedHouseBanksAsync(orgs, coa, ct);
+    }
+
+    /// <summary>
+    /// One house bank per company code, its account pointing at the bank G/L
+    /// account the payment run pays from.
+    /// </summary>
+    private async Task SeedHouseBanksAsync(
+        OrgIds orgs, ChartOfAccountsIds coa, CancellationToken ct)
+    {
+        var banks = new (string Cc, string Code, string Name, string Country, string Swift)[]
+        {
+            ("1000", "ACLED", "ACLEDA Bank Plc", "KH", "ACLBKHPP"),
+            ("1100", "ACLED", "ACLEDA Bank Plc, Kampot", "KH", "ACLBKHPP"),
+            ("2000", "BBL", "Bangkok Bank", "TH", "BKKBTHBK"),
+        };
+
+        foreach (var b in banks)
+        {
+            var companyCodeId = orgs.CompanyCodes[b.Cc];
+            var localCurrencyId = await db.Set<CompanyCode>()
+                .Where(c => c.Id == companyCodeId).Select(c => c.LocalCurrencyId).SingleAsync(ct);
+
+            var bank = new HouseBank
+            {
+                TenantId = _tenantId, Code = b.Code, Name = b.Name,
+                CompanyCodeId = companyCodeId, CountryCode = b.Country, SwiftCode = b.Swift,
+                CreatedBy = "SEED",
+            };
+            db.Add(bank);
+            await db.SaveChangesAsync(ct);
+
+            db.Add(new HouseBankAccount
+            {
+                TenantId = _tenantId, HouseBankId = bank.Id, Code = "MAIN",
+                AccountNumber = $"{b.Cc}-0000-0001",
+                // The account pays in the company code's own currency, which is
+                // what makes the run's currency check meaningful rather than
+                // vacuous.
+                CurrencyId = localCurrencyId,
+                GLAccountId = coa.Accounts["1000100000"],
+                CreatedBy = "SEED",
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
