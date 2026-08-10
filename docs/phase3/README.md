@@ -24,6 +24,7 @@ record of what increment 1 delivered rather than edited to match today:
 | 11 — the payment run screen | [increment-11-payment-run-screen.md](increment-11-payment-run-screen.md) |
 | 12 — pain.002, what the bank said back | [increment-12-bank-status.md](increment-12-bank-status.md) |
 | 13 — the bank rejections inbox | [increment-13-bank-rejections-inbox.md](increment-13-bank-rejections-inbox.md) |
+| 14 — camt.053 and bank reconciliation | [increment-14-bank-statements.md](increment-14-bank-statements.md) |
 
 ## What was built
 

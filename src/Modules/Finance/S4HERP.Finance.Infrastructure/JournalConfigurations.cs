@@ -332,3 +332,50 @@ public class PaymentStatusItemConfiguration : IEntityTypeConfiguration<PaymentSt
             .OnDelete(DeleteBehavior.Restrict);
     }
 }
+
+public class BankStatementConfiguration : IEntityTypeConfiguration<BankStatement>
+{
+    public void Configure(EntityTypeBuilder<BankStatement> b)
+    {
+        b.ToTable("BankStatement", Schemas.Fin);
+
+        // The bank's statement id, unique per tenant. Same reasoning as the
+        // pain.002 message id: statements are re-sent and re-fetched, and a
+        // second copy of the same movements would make the account appear to
+        // have done everything twice.
+        b.HasIndex(x => new { x.TenantId, x.StatementId }).IsUnique();
+        b.HasIndex(x => new { x.TenantId, x.HouseBankAccountId, x.StatementDate });
+
+        b.Property(x => x.Content).HasColumnType("nvarchar(max)");
+
+        b.HasOne(x => x.HouseBankAccount).WithMany().HasForeignKey(x => x.HouseBankAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne(x => x.CompanyCode).WithMany().HasForeignKey(x => x.CompanyCodeId)
+            .OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<Currency>().WithMany().HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class BankStatementLineConfiguration : IEntityTypeConfiguration<BankStatementLine>
+{
+    public void Configure(EntityTypeBuilder<BankStatementLine> b)
+    {
+        b.ToTable("BankStatementLine", Schemas.Fin);
+
+        b.HasIndex(x => new { x.TenantId, x.BankStatementId, x.LineNumber }).IsUnique();
+
+        // "What on this account has not been reconciled" is the question a
+        // month-end close is blocked on, so it gets its own index.
+        b.HasIndex(x => new { x.TenantId, x.Status })
+            .HasDatabaseName("IX_BankStatementLine_Unreconciled");
+
+        // Automatic matching keys on this; without an index every import scans
+        // every line ever imported.
+        b.HasIndex(x => new { x.TenantId, x.EndToEndId });
+
+        b.HasOne(x => x.BankStatement).WithMany(s => s.Lines)
+            .HasForeignKey(x => x.BankStatementId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

@@ -219,6 +219,24 @@ public static class ModuleRegistration
             IQueryHandler<GetRunBankStatusQuery, RunBankStatusResult>,
             GetRunBankStatusQueryHandler>();
         services.AddScoped<
+            ICommandHandler<ImportBankStatementCommand, BankStatementResult>,
+            ImportBankStatementHandler>();
+        services.AddScoped<
+            ICommandHandler<MatchStatementLineCommand, BankStatementLineView>,
+            MatchStatementLineHandler>();
+        services.AddScoped<
+            ICommandHandler<IgnoreStatementLineCommand, BankStatementLineView>,
+            IgnoreStatementLineHandler>();
+        services.AddScoped<
+            IQueryHandler<GetBankStatementQuery, BankStatementResult>,
+            GetBankStatementQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<ListBankStatementsQuery, IReadOnlyList<BankStatementSummary>>,
+            ListBankStatementsQueryHandler>();
+        services.AddScoped<
+            IQueryHandler<GetBankReconciliationQuery, BankReconciliationResult>,
+            GetBankReconciliationQueryHandler>();
+        services.AddScoped<
             ICommandHandler<GeneratePaymentFileCommand, PaymentFileResult>,
             GeneratePaymentFileHandler>();
         services.AddScoped<

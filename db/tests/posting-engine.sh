@@ -1639,6 +1639,174 @@ assert_body "...with the bank's verdict intact" '"reasonCode":"AC01"'
 check "An unimported report is not found" 404 NOT_FOUND \
   "$BASE/api/v1/finance/payment-status-reports/STS-NEVER" -H "$ACCOUNTANT"
 
+echo
+echo "== What the account actually did (camt.053) =="
+
+# A fresh invoice, run and execution, so the statement below refers to a payment
+# nothing else in this suite has touched. Reusing an earlier one would make the
+# reconciliation depend on what other blocks did to it.
+check "An invoice for the statement to settle" 201 - \
+  -X POST "$BASE/api/v1/finance/journal-entries" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","documentType":"KR","documentDate":"2026-06-01",
+       "postingDate":"2026-06-01","currency":"USD","reference":"AP-STMT",
+       "lines":[
+         {"postingKey":"40","amount":800.00,"glAccount":"6000000000","costCenter":"CC101000"},
+         {"postingKey":"31","amount":800.00,"businessPartner":"1000000002","paymentTerms":"N014"}]}'
+
+check "...proposed" 201 - \
+  -X POST "$BASE/api/v1/finance/payment-runs" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"companyCode":"1000","runDate":"2026-06-10","dueBy":"2026-06-15",
+       "paymentMethod":"T","houseBank":"ACLED","houseBankAccount":"MAIN",
+       "businessPartner":"1000000002"}'
+STMTRUN=$(json_field runId)
+# Restricting a run to one partner does not restrict it to one invoice, so this
+# clears the release threshold and has to be approved. Learned in increment 11,
+# where the same assumption broke a browser test twice.
+check "...submitted, because it clears the release threshold" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$STMTRUN/submit" -H "$ACCOUNTANT"
+check "...released" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$STMTRUN/approve" -H "$APPROVER" -H "$JSON" \
+  -d '{"comment":"Checked."}'
+check "...executed" 200 - \
+  -X POST "$BASE/api/v1/finance/payment-runs/$STMTRUN/execute" -H "$ACCOUNTANT"
+STMTDOC=$(printf '%s' "$LAST_BODY" \
+  | grep -oE '"paymentDocumentNumbers":\[[0-9]+' | grep -oE '[0-9]+$')
+STMTTOTAL=$(printf '%s' "$LAST_BODY" | grep -oE '"totalPaid":[0-9.]+' | cut -d: -f2)
+STMTE2E="1000-2026-$STMTDOC"
+
+# A statement in the shape a bank sends one: an opening and closing balance the
+# bank asserts, and entries carrying the end-to-end id this system put on the
+# outgoing instruction.
+camt053() {
+  cat <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>MSG-$1</MsgId><CreDtTm>2026-06-30T23:00:00Z</CreDtTm></GrpHdr>
+    <Stmt>
+      <Id>$1</Id>
+      <LglSeqNb>7</LglSeqNb>
+      <CreDtTm>2026-06-30T23:00:00Z</CreDtTm>
+      <Acct><Id><Othr><Id>$2</Id></Othr></Id><Ccy>USD</Ccy></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="USD">0.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="USD">$3</Amt><CdtDbtInd>$4</CdtDbtInd></Bal>
+      <Ntry>
+        <NtryRef>E-1</NtryRef>
+        <Amt Ccy="USD">$5</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-06-10</Dt></BookgDt><ValDt><Dt>2026-06-10</Dt></ValDt>
+        <BkTxCd><Domn><Cd>PMNT</Cd></Domn></BkTxCd>
+        <NtryDtls><TxDtls>
+          <Refs><EndToEndId>$6</EndToEndId></Refs>
+          <RltdPties><Cdtr><Nm>Mekong Logistics Ltd</Nm></Cdtr></RltdPties>
+          <RmtInf><Ustrd>Invoice settlement</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <NtryRef>E-2</NtryRef>
+        <Amt Ccy="USD">15.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-06-30</Dt></BookgDt>
+        <BkTxCd><Domn><Cd>PMNT</Cd></Domn></BkTxCd>
+        <AddtlNtryInf>Account maintenance fee</AddtlNtryInf>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>
+XML
+}
+
+check "Malformed XML is refused before anything is stored" 422 BANK_STATEMENT_MALFORMED \
+  -X POST "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary '<Document><unclosed>'
+check "Something that is not a statement is refused" 422 BANK_STATEMENT_MALFORMED \
+  -X POST "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary '<?xml version="1.0"?><Document><NotAStatement/></Document>'
+# Filing another company's bank traffic against our ledger is worse than losing it.
+check "A statement for an account we do not hold is refused" 422 BANK_STATEMENT_UNKNOWN_ACCOUNT \
+  -X POST "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(camt053 'STMT-BOGUS' 'SOMEONE-ELSES-ACCOUNT' '100.00' DBIT "$STMTTOTAL" "$STMTE2E")"
+
+check "A statement imports" 201 - \
+  -X POST "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(camt053 'STMT-0001' '1000-0000-0001' '900.00' DBIT "$STMTTOTAL" "$STMTE2E")"
+assert_body "...against the right house bank account" '"houseBankAccount":"ACLED/MAIN"'
+assert_body "...keeping the bank's own closing balance" '"closingBalance":-900'
+assert_body "...with both movements" '"lineCount":2'
+# The identifier increment 8 put on the outgoing instruction is what makes this
+# possible; nothing is matched on amount and date, because a confident wrong
+# match is worse than an honest gap.
+assert_body "...the payment matched automatically by end-to-end id" '"matched":1'
+assert_body "...by that method, recorded" '"matchMethod":"EndToEndId"'
+assert_body "...and the bank charge left for a person" '"unmatched":1'
+assert_body "...carrying what the bank called it" 'Account maintenance fee'
+
+check "Re-importing the same statement changes nothing" 200 - \
+  -X POST "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(camt053 'STMT-0001' '1000-0000-0001' '900.00' DBIT "$STMTTOTAL" "$STMTE2E")"
+assert_body "...and says so, rather than doubling every movement" '"alreadyImported":true'
+assert_body "...still two lines" '"lineCount":2'
+
+check "The reconciliation compares the bank against the ledger" 200 - \
+  "$BASE/api/v1/finance/bank-statements/STMT-0001/reconciliation" -H "$ACCOUNTANT"
+assert_body "...naming the G/L account it reconciles to" '"glAccount":"1000100000"'
+assert_body "...and reporting a difference, because they do not agree" '"isReconciled":false'
+assert_body "...listing the movement with no counterpart" 'Account maintenance fee'
+LEDGERBAL=$(printf '%s' "$LAST_BODY" | grep -oE '"ledgerBalance":-?[0-9.]+' | cut -d: -f2)
+
+# The strongest available proof that the comparison is real: take the ledger
+# balance the system just reported and send a statement asserting exactly that.
+# It must reconcile, and it must be the arithmetic doing it rather than a flag.
+LEDGERABS=$(printf '%s' "$LEDGERBAL" | tr -d -)
+check "A statement agreeing with the ledger reconciles" 201 - \
+  -X POST "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT" -H "$XMLH" \
+  --data-binary "$(camt053 'STMT-0002' '1000-0000-0001' "$LEDGERABS" DBIT "$STMTTOTAL" "$STMTE2E")"
+check "...confirmed" 200 - \
+  "$BASE/api/v1/finance/bank-statements/STMT-0002/reconciliation" -H "$ACCOUNTANT"
+assert_body "...with no difference to explain" '"difference":0'
+assert_body "...reconciled" '"isReconciled":true'
+
+# Manual matching, and the checks that keep it a fact rather than an opinion.
+check "A line cannot be matched to a document that does not exist" 422 BANK_STATEMENT_DOCUMENT_NOT_FOUND \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/2/match" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"fiscalYear":2026,"documentNumber":999999999}'
+check "...nor to one that never touched this bank account" 422 BANK_STATEMENT_DOCUMENT_NOT_FOUND \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/2/match" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"fiscalYear":2026,"documentNumber":400000001}'
+check "...nor to one that moved a different amount" 422 BANK_STATEMENT_AMOUNT_MISMATCH \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/2/match" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"fiscalYear\":2026,\"documentNumber\":$STMTDOC}"
+check "An already-matched line is not matched again" 422 BANK_STATEMENT_LINE_ALREADY_MATCHED \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/1/match" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"fiscalYear\":2026,\"documentNumber\":$STMTDOC}"
+check "A line that is not there is not found" 422 BANK_STATEMENT_LINE_NOT_FOUND \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/99/match" -H "$ACCOUNTANT" -H "$JSON" \
+  -d "{\"fiscalYear\":2026,\"documentNumber\":$STMTDOC}"
+
+# Setting a line aside is a different fact from matching it, and needs a reason.
+check "Setting a line aside without a reason is refused" 400 VALIDATION_FAILED \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/2/ignore" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{}'
+check "A matched line cannot be set aside" 422 BANK_STATEMENT_LINE_ALREADY_MATCHED \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/1/ignore" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"reason":"Trying to hide a real payment"}'
+check "The bank charge is set aside, with a reason" 200 - \
+  -X POST "$BASE/api/v1/finance/bank-statements/STMT-0001/lines/2/ignore" -H "$ACCOUNTANT" -H "$JSON" \
+  -d '{"reason":"Bank charge; posted separately in the monthly fee journal"}'
+assert_body "...as ignored, not as matched" '"status":"Ignored"'
+assert_body "...keeping the reason on the record" 'posted separately'
+
+check "...so nothing on the statement is left unexamined" 200 - \
+  "$BASE/api/v1/finance/bank-statements/STMT-0001" -H "$ACCOUNTANT"
+assert_body "...none unmatched" '"unmatched":0'
+assert_body "...one matched and one set aside" '"matched":1.*"ignored":1'
+
+check "Statements are listable" 200 - "$BASE/api/v1/finance/bank-statements" -H "$ACCOUNTANT"
+assert_body "...naming the statement" '"statementId":"STMT-0001"'
+assert_body "...and how much of it still needs attention" '"unmatched":0'
+check "An unimported statement is not found" 404 NOT_FOUND \
+  "$BASE/api/v1/finance/bank-statements/STMT-NEVER" -H "$ACCOUNTANT"
+
 check "Trial balance still foots after bank maintenance" 200 - \
   "$BASE/api/v1/finance/reports/trial-balance?companyCode=1000&fiscalYear=2026" -H "$ACCOUNTANT"
 DIFF10=$(json_field difference)

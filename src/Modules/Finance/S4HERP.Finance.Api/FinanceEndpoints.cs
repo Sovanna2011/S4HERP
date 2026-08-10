@@ -270,6 +270,78 @@ public static class FinanceEndpoints
             .WithName("ResolveRejectedPayment")
             .WithSummary("Reverse a refused payment and reopen the invoices it cleared.");
 
+        // What the account actually did, as opposed to what we instructed and what
+        // the bank said about the instruction.
+        var statements = routes
+            .MapGroup("/api/v1/finance/bank-statements")
+            .WithTags("Bank statements");
+
+        statements.MapPost("/", async (
+                HttpRequest request, IDispatcher dispatcher, CancellationToken ct) =>
+            {
+                using var reader = new StreamReader(request.Body);
+                var content = await reader.ReadToEndAsync(ct);
+
+                var result = await dispatcher.SendAsync(
+                    new ImportBankStatementCommand { Content = content }, ct);
+
+                return result.AlreadyImported
+                    ? Results.Ok(result)
+                    : Results.Created($"/api/v1/finance/bank-statements/{result.StatementId}", result);
+            })
+            .Accepts<string>("application/xml", "text/xml")
+            .WithName("ImportBankStatement")
+            .WithSummary("Import an ISO 20022 camt.053 bank statement.");
+
+        statements.MapGet("/", async (
+                string? companyCode, int? take, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new ListBankStatementsQuery { CompanyCode = companyCode, Take = take ?? 50 }, ct)))
+            .WithName("ListBankStatements")
+            .WithSummary("Imported statements, newest first.");
+
+        statements.MapGet("/{statementId}", async (
+                string statementId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new GetBankStatementQuery { StatementId = statementId }, ct)))
+            .WithName("GetBankStatement")
+            .WithSummary("A statement and every movement on it.");
+
+        statements.MapGet("/{statementId}/reconciliation", async (
+                string statementId, IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.QueryAsync(
+                    new GetBankReconciliationQuery { StatementId = statementId }, ct)))
+            .WithName("GetBankReconciliation")
+            .WithSummary("Statement closing balance against the ledger, and what stands between them.");
+
+        statements.MapPost("/{statementId}/lines/{lineNumber:int}/match", async (
+                string statementId, int lineNumber, MatchLineBody body,
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new MatchStatementLineCommand
+                    {
+                        StatementId = statementId,
+                        LineNumber = lineNumber,
+                        FiscalYear = body.FiscalYear,
+                        DocumentNumber = body.DocumentNumber,
+                        Comment = body.Comment,
+                    }, ct)))
+            .WithName("MatchStatementLine")
+            .WithSummary("Tie a statement line to a posted document.");
+
+        statements.MapPost("/{statementId}/lines/{lineNumber:int}/ignore", async (
+                string statementId, int lineNumber, MatchLineBody body,
+                IDispatcher dispatcher, CancellationToken ct) =>
+                Results.Ok(await dispatcher.SendAsync(
+                    new IgnoreStatementLineCommand
+                    {
+                        StatementId = statementId,
+                        LineNumber = lineNumber,
+                        Reason = body.Reason ?? string.Empty,
+                    }, ct)))
+            .WithName("IgnoreStatementLine")
+            .WithSummary("Set a line aside as needing no document of ours. Reason mandatory.");
+
         var payments = routes.MapGroup("/api/v1/finance/payments").WithTags("Payments");
 
         payments.MapPost("/", async (

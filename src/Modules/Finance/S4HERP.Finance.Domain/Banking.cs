@@ -278,3 +278,122 @@ public class PaymentStatusItem : AuditableEntity
     [MaxLength(64)] public string? ResolvedBy { get; set; }
     public long? ReversalDocumentNumber { get; set; }
 }
+
+/// <summary>Where a statement line stands against the ledger.</summary>
+public enum StatementLineStatus
+{
+    /// <summary>Nothing in the ledger has been identified as this line.</summary>
+    Unmatched = 1,
+
+    /// <summary>Tied to a posted document. The bank and the books agree about this movement.</summary>
+    Matched = 2,
+
+    /// <summary>
+    /// Deliberately set aside — bank charges, interest, a transfer between our
+    /// own accounts. Not matched and not outstanding: somebody has looked and
+    /// decided it needs no document of ours.
+    /// </summary>
+    Ignored = 3,
+}
+
+/// <summary>
+/// One imported ISO 20022 camt.053 bank statement.
+///
+/// This is the first thing in the system that describes what the bank account
+/// actually did, as opposed to what this system instructed or what the bank said
+/// about those instructions. A payment can be accepted in a pain.002 and still
+/// come back a week later; only the statement shows that.
+/// </summary>
+public class BankStatement : AuditableEntity
+{
+    /// <summary>camt.053 <c>Stmt/Id</c>. Unique per tenant: re-importing is a no-op.</summary>
+    [MaxLength(35)] public required string StatementId { get; set; }
+
+    /// <summary>Statement sequence within the account, where the bank gives one.</summary>
+    public int? LegalSequenceNumber { get; set; }
+
+    public long HouseBankAccountId { get; set; }
+    public HouseBankAccount HouseBankAccount { get; set; } = null!;
+
+    public long CompanyCodeId { get; set; }
+    public CompanyCode CompanyCode { get; set; } = null!;
+
+    [MaxLength(30)] public required string Format { get; set; }
+
+    /// <summary>
+    /// The bank's own balances. Stored rather than derived, because the point of
+    /// a statement is that it is the bank's assertion — recomputing it from the
+    /// lines would replace the assertion with our arithmetic and lose the ability
+    /// to notice that they disagree.
+    /// </summary>
+    public decimal OpeningBalance { get; set; }
+    public decimal ClosingBalance { get; set; }
+    public long CurrencyId { get; set; }
+
+    public DateOnly StatementDate { get; set; }
+    public DateOnly? FromDate { get; set; }
+
+    public required string Content { get; set; }
+    [MaxLength(64)] public required string ContentSha256 { get; set; }
+
+    public DateTime ImportedAtUtc { get; set; }
+    [MaxLength(64)] public required string ImportedBy { get; set; }
+
+    public ICollection<BankStatementLine> Lines { get; set; } = [];
+}
+
+/// <summary>
+/// One movement on the account, as the bank recorded it.
+///
+/// The line is never edited to match the ledger. Reconciliation records the
+/// correspondence between a bank movement and a posted document; it does not
+/// adjust either. A statement that has been "corrected" is no longer evidence.
+/// </summary>
+public class BankStatementLine : AuditableEntity, IConcurrencyControlled
+{
+    public long BankStatementId { get; set; }
+    public BankStatement BankStatement { get; set; } = null!;
+
+    /// <summary>Position within the statement, so the order the bank sent survives.</summary>
+    public int LineNumber { get; set; }
+
+    /// <summary>The bank's reference for the entry, where it gave one.</summary>
+    [MaxLength(35)] public string? EntryReference { get; set; }
+
+    /// <summary>Always positive; direction is in <see cref="IsCredit"/>.</summary>
+    public decimal Amount { get; set; }
+
+    /// <summary>True for money in, false for money out. The bank's CdtDbtInd.</summary>
+    public bool IsCredit { get; set; }
+
+    public DateOnly? BookingDate { get; set; }
+    public DateOnly? ValueDate { get; set; }
+
+    /// <summary>
+    /// <c>EndToEndId</c> from the entry's transaction details, which is what
+    /// makes automatic matching possible at all — it is the identifier this
+    /// system put on the outgoing instruction in increment 8.
+    /// </summary>
+    [MaxLength(35)] public string? EndToEndId { get; set; }
+
+    /// <summary>Unstructured remittance information, verbatim.</summary>
+    [MaxLength(400)] public string? RemittanceInformation { get; set; }
+
+    /// <summary>Whoever the bank says was on the other side.</summary>
+    [MaxLength(140)] public string? CounterpartyName { get; set; }
+
+    /// <summary>ISO 20022 bank transaction code, e.g. PMNT/RCDT/ESCT.</summary>
+    [MaxLength(35)] public string? BankTransactionCode { get; set; }
+
+    public StatementLineStatus Status { get; set; } = StatementLineStatus.Unmatched;
+
+    public short? FiscalYear { get; set; }
+    public long? DocumentNumber { get; set; }
+
+    /// <summary>How the correspondence was established, so a reviewer can weigh it.</summary>
+    [MaxLength(30)] public string? MatchMethod { get; set; }
+
+    [MaxLength(64)] public string? MatchedBy { get; set; }
+    public DateTime? MatchedAtUtc { get; set; }
+    [MaxLength(200)] public string? MatchComment { get; set; }
+}
