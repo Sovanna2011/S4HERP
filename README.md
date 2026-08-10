@@ -17,10 +17,11 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 10](docs/phase3/increment-10-approvals-inbox.md) | Delivered. One approvals inbox across all object types, and the bank change approval screen |
 | 3 — [Increment 11](docs/phase3/increment-11-payment-run-screen.md) | Delivered. The payment run on a screen: propose, submit, approve, execute, generate and download the bank file |
 | 3 — [Increment 12](docs/phase3/increment-12-bank-status.md) | Delivered. ISO 20022 pain.002 import: a payment gains a status from the bank, and a refusal can be reversed |
+| 3 — [Increment 13](docs/phase3/increment-13-bank-rejections-inbox.md) | Delivered. The bank rejections inbox: everything the bank refused, across every run |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**452 automated checks passing** across four suites, against the container image.
+**475 automated checks passing** across four suites, against the container image.
 Modules still to build — bank statement import (camt.053) and reconciliation,
 dunning, Asset Accounting, Controlling allocations, SE11 and SE16N — are designed
 in the blueprint and listed in each phase report.
@@ -54,8 +55,8 @@ curl http://localhost:8080/health/ready
 Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
-./db/tests/posting-engine.sh                     # 381 posting-engine checks over HTTP
-node ui5/test/ui-acceptance.mjs                  # 63 browser checks
+./db/tests/posting-engine.sh                     # 385 posting-engine checks over HTTP
+node ui5/test/ui-acceptance.mjs                  # 71 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
 

@@ -1533,6 +1533,15 @@ check "The rejection is outstanding, and findable" 200 - \
   "$BASE/api/v1/finance/payment-status-reports/rejections" -H "$ACCOUNTANT"
 assert_body "...naming the payment the ledger still shows as paid" "\"endToEndId\":\"$E2E\""
 assert_body "...unresolved" '"isResolved":false'
+# The bank's report knows account numbers, not our partner numbers, so the list
+# resolves who was not paid from the run. Without it the page is a column of
+# document numbers, and "whose payment failed" is the first question asked.
+assert_body "...saying who was not paid" '"businessPartner":"1000000002"'
+assert_body "...by name, not only by number" '"businessPartnerName":"Mekong Logistics Ltd"'
+# pain.002 is not obliged to echo the amount. This one did; the fallback to the
+# run's own figure is what makes the list prioritisable when it does not.
+assert_body "...and how much is at stake" '"amount":12000'
+assert_body "...in a currency" '"currency":"USD"'
 
 # The ledger still says paid. That is the whole problem this increment exists to
 # make visible, so it is asserted rather than assumed.

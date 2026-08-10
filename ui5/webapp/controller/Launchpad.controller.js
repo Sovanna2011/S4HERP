@@ -28,6 +28,10 @@ sap.ui.define([
         {
             key: "PAYMENT_RUNS", name: "paymentRunsTile", transactionCode: "F110",
             module: "Finance", icon: "sap-icon://money-bills", route: "paymentRuns"
+        },
+        {
+            key: "BANK_REJECTIONS", name: "bankRejectionsTile", transactionCode: "FF_5",
+            module: "Finance", icon: "sap-icon://alert", route: "bankRejections"
         }
     ];
 

@@ -563,6 +563,60 @@ check('...and the invoice is open again, so the ledger agrees with the bank',
   openItems.rows.some((r) => Number(r.openAmount) === 2500 && r.clearingStatus === 'Open'),
   JSON.stringify(openItems.rows.map((r) => r.openAmount)));
 
+console.log('\n== The bank rejections inbox ==');
+
+// Increment 12 could answer "what has the bank refused"; nobody could ask it
+// without already knowing which run to open. This is that page.
+await setUser('seed.accountant');
+await open('#/bank-rejections');
+await page.waitForSelector(ID('bankRejections', 'bankRejectionsTable'), { timeout: 30000 });
+
+// The API suite leaves one rejection the bank named for a payment this system
+// cannot place, and it is permanently outstanding: reversing a guess is refused,
+// so there is no action to offer. The page has to say that rather than show a
+// button that always fails.
+check('A rejection with no matching payment is listed',
+  await textAppears(ID('bankRejections', 'bankRejectionsTable'), '1000-2026-999999999'));
+check('...as needing investigation, not as a reversal waiting to happen',
+  await textAppears(ID('bankRejections', 'bankRejectionsTable'), 'Needs investigation'));
+
+const secondRejection = await fetch(`${BASE}/api/v1/finance/payment-status-reports`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/xml', 'X-S4HERP-User': 'seed.accountant' },
+  body: `<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.10">
+  <CstmrPmtStsRpt>
+    <GrpHdr><MsgId>UI-STS-B-${Date.now()}</MsgId><CreDtTm>2026-05-13T08:00:00Z</CreDtTm></GrpHdr>
+    <OrgnlGrpInfAndSts><OrgnlMsgId>${fileMeta.messageId}</OrgnlMsgId></OrgnlGrpInfAndSts>
+    <OrgnlPmtInfAndSts>
+      <TxInfAndSts>
+        <OrgnlEndToEndId>${uiE2E}</OrgnlEndToEndId>
+        <TxSts>RJCT</TxSts>
+        <StsRsnInf><Rsn><Cd>AM04</Cd></Rsn><AddtlInf>Insufficient funds</AddtlInf></StsRsnInf>
+      </TxInfAndSts>
+    </OrgnlPmtInfAndSts>
+  </CstmrPmtStsRpt>
+</Document>`
+});
+check('A second refusal of the same payment imports', secondRejection.status === 201,
+  String(secondRejection.status));
+
+await open('#/bank-rejections');
+await page.waitForSelector(ID('bankRejections', 'bankRejectionsTable'), { timeout: 30000 });
+check('...and now the page says there is work',
+  await textAppears(ID('bankRejections', 'bankRejectionsSummary'), 'Outstanding'));
+check('...naming who was not paid',
+  await textAppears(ID('bankRejections', 'bankRejectionsTable'), 'Mekong Logistics Ltd'));
+check('...with the bank\'s reason',
+  await textAppears(ID('bankRejections', 'bankRejectionsTable'), 'Insufficient funds'));
+
+// Resolved ones are hidden by default: the page is a work queue, not a log.
+check('Reversed ones are out of the way until asked for',
+  !(await textAppears(ID('bankRejections', 'bankRejectionsTable'), 'Creditor account closed', 3000)));
+await page.locator(ID('bankRejections', 'bankRejectionsIncludeResolved')).click();
+check('...and there when they are',
+  await textAppears(ID('bankRejections', 'bankRejectionsTable'), 'Creditor account closed'));
+
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });
 await page.waitForSelector(ID('trialBalance', 'balanceTable'), { timeout: 30000 });

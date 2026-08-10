@@ -142,6 +142,17 @@ public sealed record PaymentStatusItemView(
     bool IsResolved,
     long? ReversalDocumentNumber);
 
+/// <param name="BusinessPartner">
+/// Who was not paid. The bank's report does not say — it knows account numbers,
+/// not our partner numbers — so this comes from the run item the end-to-end id
+/// resolves to. Without it the list is a page of document numbers, and the first
+/// question anyone asks of a failed payment is whose it was.
+/// </param>
+/// <param name="Amount">
+/// The bank's figure where it gave one, otherwise the run's. pain.002 is not
+/// obliged to echo the amount, and a rejection list that cannot say how much is
+/// at stake cannot be prioritised.
+/// </param>
 public sealed record RejectedPaymentView(
     string EndToEndId,
     string ReportMessageId,
@@ -149,6 +160,9 @@ public sealed record RejectedPaymentView(
     string? ReasonCode,
     string? ReasonText,
     decimal? Amount,
+    string? Currency,
+    string? BusinessPartner,
+    string? BusinessPartnerName,
     string? CompanyCode,
     short? FiscalYear,
     long? PaymentDocumentNumber,
@@ -644,21 +658,100 @@ public sealed class GetOutstandingRejectionsQueryHandler(
             items = items.Where(i => i.CompanyCode!.Code == code);
         }
 
-        return await items
+        var rows = await items
+            // Unresolved first, then newest: the list is a work queue, and a
+            // rejection from this morning outranks one somebody already dealt with.
             .OrderBy(i => i.IsResolved).ThenByDescending(i => i.PaymentStatusReport.ImportedAtUtc)
-            .Select(i => new RejectedPaymentView(
+            .Select(i => new
+            {
                 i.EndToEndId,
-                i.PaymentStatusReport.MessageId,
-                i.PaymentStatusReport.PaymentFile.PaymentRun.RunId,
+                ReportMessageId = i.PaymentStatusReport.MessageId,
+                Run = i.PaymentStatusReport.PaymentFile.PaymentRun,
                 i.ReasonCode,
                 i.ReasonText,
-                i.Amount,
-                i.CompanyCode!.Code,
+                BankAmount = i.Amount,
+                CompanyCode = i.CompanyCode!.Code,
                 i.FiscalYear,
                 i.PaymentDocumentNumber,
                 i.PaymentStatusReport.ImportedAtUtc,
-                i.IsResolved))
+                i.IsResolved,
+                CurrencyId = i.PaymentStatusReport.PaymentFile.CurrencyId,
+            })
             .ToListAsync(ct);
+
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        // Who was not paid, and for how much. Resolved from the run's own items
+        // rather than the bank's report, which knows account numbers and not our
+        // partner numbers.
+        var runIds = rows.Select(r => r.Run.Id).Distinct().ToList();
+        var runItems = await db.Set<PaymentRunItem>()
+            .AsNoTracking()
+            .Where(i => runIds.Contains(i.PaymentRunId) && i.PaymentDocumentNumber != null)
+            .Select(i => new
+            {
+                i.PaymentRunId,
+                i.PaymentDocumentNumber,
+                i.BusinessPartnerNumber,
+                i.BusinessPartnerId,
+                i.Amount,
+            })
+            .ToListAsync(ct);
+
+        var byDocument = runItems
+            .GroupBy(i => (i.PaymentRunId, i.PaymentDocumentNumber))
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    g.First().BusinessPartnerNumber,
+                    g.First().BusinessPartnerId,
+                    // One payment can cover several invoices; what was refused is
+                    // the payment, so the sum is the figure at stake.
+                    Amount = g.Sum(i => i.Amount),
+                });
+
+        var partnerIds = byDocument.Values.Select(v => v.BusinessPartnerId).Distinct().ToList();
+        var partnerNames = await db.Set<BusinessPartner.Domain.Partner>()
+            .AsNoTracking()
+            .Where(p => partnerIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.Name ?? p.LastName, ct);
+
+        var currencyIds = rows.Select(r => r.CurrencyId).Distinct().ToList();
+        var currencies = await db.Set<Currency>()
+            .AsNoTracking()
+            .Where(c => currencyIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Code, ct);
+
+        return rows
+            .Select(r =>
+            {
+                var payment = r.PaymentDocumentNumber is { } doc
+                    ? byDocument.GetValueOrDefault((r.Run.Id, doc))
+                    : null;
+
+                return new RejectedPaymentView(
+                    r.EndToEndId,
+                    r.ReportMessageId,
+                    r.Run.RunId,
+                    r.ReasonCode,
+                    r.ReasonText,
+                    r.BankAmount ?? payment?.Amount,
+                    currencies.GetValueOrDefault(r.CurrencyId),
+                    payment?.BusinessPartnerNumber,
+                    payment is null
+                        ? null
+                        : partnerNames.GetValueOrDefault(payment.BusinessPartnerId),
+                    r.CompanyCode,
+                    r.FiscalYear,
+                    r.PaymentDocumentNumber,
+                    r.ImportedAtUtc,
+                    r.IsResolved);
+            })
+            .ToList();
     }
 }
 

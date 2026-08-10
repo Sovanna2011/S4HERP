@@ -1,0 +1,96 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.BankRejections"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f">
+    <f:DynamicPage id="bankRejectionsPage" headerExpanded="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title text="{i18n>bankRejectionsTitle}"/></f:heading>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                    <Button icon="sap-icon://refresh" press=".onRefresh" tooltip="{i18n>refresh}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <VBox>
+                    <Text text="{i18n>bankRejectionsDescription}"/>
+                    <!-- The one number that matters on this page. A treasurer
+                         opening it wants to know whether there is anything to do
+                         before reading a single row. -->
+                    <ObjectStatus id="bankRejectionsSummary"
+                                  class="sapUiSmallMarginTop"
+                                  text="{= ${/outstanding} === 0
+                                        ? ${i18n>bankRejectionsNoneOutstanding}
+                                        : ${i18n>bankRejectionsOutstanding} }"
+                                  state="{= ${/outstanding} === 0 ? 'Success' : 'Error' }"/>
+                </VBox>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <VBox>
+                <CheckBox id="bankRejectionsIncludeResolved"
+                          text="{i18n>bankRejectionsShowResolved}"
+                          selected="{/includeResolved}"
+                          select=".onToggleResolved"/>
+
+                <Table id="bankRejectionsTable"
+                       items="{/rejections}"
+                       noDataText="{i18n>bankRejectionsEmpty}">
+                    <columns>
+                        <Column><Text text="{i18n>businessPartner}"/></Column>
+                        <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
+                        <Column><Text text="{i18n>paymentRunBankReason}"/></Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true">
+                            <Text text="{i18n>paymentRunsRun}"/>
+                        </Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true">
+                            <Text text="{i18n>bankRejectionsReported}"/>
+                        </Column>
+                        <Column hAlign="End"><Text text="{i18n>action}"/></Column>
+                    </columns>
+                    <items>
+                        <ColumnListItem>
+                            <cells>
+                                <!-- Who was not paid, first. The bank's report
+                                     knows account numbers; this is the name the
+                                     person chasing it will use. -->
+                                <ObjectIdentifier title="{businessPartnerName}"
+                                                  text="{businessPartner} · {endToEndId}"/>
+                                <ObjectNumber number="{path: 'amount', formatter: '.formatter.amount'}"
+                                              unit="{currency}"
+                                              state="{= ${isResolved} ? 'None' : 'Error' }"/>
+                                <Text text="{reasonCode} {reasonText}"/>
+                                <Link text="{runId}" press=".onOpenRun"/>
+                                <Text text="{path: 'reportedAtUtc', formatter: '.formatter.dateTime'}"/>
+                                <HBox justifyContent="End">
+                                    <ObjectStatus text="{i18n>bankRejectionsReversed}"
+                                                  state="Success"
+                                                  visible="{= ${isResolved} }"/>
+                                    <!-- A rejection the bank named for a payment
+                                         we cannot place has no reversal to offer:
+                                         the server refuses it, correctly, and a
+                                         button that always fails is not an
+                                         action. It says what it needs instead. -->
+                                    <ObjectStatus text="{i18n>bankRejectionsInvestigate}"
+                                                  state="Warning"
+                                                  visible="{= !${isResolved}
+                                                            &amp;&amp; ${paymentDocumentNumber} === null }"/>
+                                    <Button text="{i18n>paymentRunResolveRejection}"
+                                            type="Reject"
+                                            visible="{= !${isResolved}
+                                                      &amp;&amp; ${paymentDocumentNumber} !== null }"
+                                            press=".onResolve"/>
+                                </HBox>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+                </Table>
+            </VBox>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

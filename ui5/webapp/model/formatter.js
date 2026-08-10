@@ -96,6 +96,14 @@ sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
             }
         },
 
+        /** A UTC instant as a plain date and time; the list only needs the day. */
+        dateTime(value) {
+            if (!value) {
+                return "";
+            }
+            return String(value).replace("T", " ").slice(0, 16);
+        },
+
         stepDecisionState(decision) {
             switch (decision) {
                 case "Approved": return "Success";

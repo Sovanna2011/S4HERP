@@ -102,6 +102,11 @@
           "pattern": "payment-runs/{runId}",
           "name": "paymentRun",
           "target": "paymentRun"
+        },
+        {
+          "pattern": "bank-rejections",
+          "name": "bankRejections",
+          "target": "bankRejections"
         }
       ],
       "targets": {
@@ -144,6 +149,11 @@
           "viewId": "paymentRun",
           "viewName": "PaymentRun",
           "viewLevel": 3
+        },
+        "bankRejections": {
+          "viewId": "bankRejections",
+          "viewName": "BankRejections",
+          "viewLevel": 2
         }
       }
     }
