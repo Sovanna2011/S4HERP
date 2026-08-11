@@ -1,0 +1,123 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.BankStatement"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f"
+    xmlns:form="sap.ui.layout.form">
+    <f:DynamicPage id="bankStatementPage" headerExpanded="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title id="bankStatementTitle" text="{/statementId}"/></f:heading>
+                <f:expandedContent>
+                    <!-- The answer to the only question this page exists for.
+                         Everything below is the working. -->
+                    <ObjectStatus id="bankStatementVerdict"
+                                  text="{= ${recon>/isReconciled}
+                                        ? ${i18n>bankStatementReconciled}
+                                        : ${i18n>bankStatementNotReconciled} }"
+                                  state="{= ${recon>/isReconciled} ? 'Success' : 'Error' }"/>
+                </f:expandedContent>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                    <Button icon="sap-icon://refresh" press=".onRefresh" tooltip="{i18n>refresh}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <form:SimpleForm editable="false" layout="ResponsiveGridLayout" columnsL="3" columnsM="2">
+                    <Label text="{i18n>companyCode}"/><Text text="{/companyCode}"/>
+                    <Label text="{i18n>payingAccount}"/><Text text="{/houseBankAccount}"/>
+                    <Label text="{i18n>bankStatementDate}"/><Text text="{/statementDate}"/>
+                    <Label text="{i18n>bankStatementOpening}"/>
+                    <ObjectNumber number="{path: '/openingBalance', formatter: '.formatter.signedAmount'}"
+                                  unit="{/currency}"/>
+                    <!-- The two numbers that must agree, side by side, and the
+                         gap between them. Reading a difference off two screens
+                         is how a reconciliation gets skipped. -->
+                    <Label text="{i18n>bankStatementClosingBank}"/>
+                    <ObjectNumber id="bankStatementClosing"
+                                  number="{path: 'recon>/statementClosingBalance', formatter: '.formatter.signedAmount'}"
+                                  unit="{/currency}"
+                                  emphasized="true"/>
+                    <Label text="{i18n>bankStatementLedger}"/>
+                    <ObjectNumber id="bankStatementLedger"
+                                  number="{path: 'recon>/ledgerBalance', formatter: '.formatter.signedAmount'}"
+                                  unit="{/currency}"/>
+                    <Label text="{i18n>bankStatementDifference}"/>
+                    <ObjectNumber id="bankStatementDifference"
+                                  number="{path: 'recon>/difference', formatter: '.formatter.signedAmount'}"
+                                  unit="{/currency}"
+                                  state="{= ${recon>/isReconciled} ? 'Success' : 'Error' }"
+                                  emphasized="true"/>
+                </form:SimpleForm>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+          <VBox class="sapUiSmallMargin">
+            <MessageStrip id="bankStatementStrip"
+                          class="sapUiSmallMarginBottom"
+                          type="Warning"
+                          showIcon="true"
+                          text="{i18n>bankStatementUnexplained}"
+                          visible="{= !${recon>/isReconciled} }"/>
+
+            <Table id="bankStatementLines"
+                   items="{/lines}"
+                   noDataText="{i18n>bankStatementNoLines}">
+                <headerToolbar>
+                    <OverflowToolbar>
+                        <Title text="{i18n>bankStatementMovements}"/>
+                        <ToolbarSpacer/>
+                        <ObjectStatus id="bankStatementCounts"
+                                      text="{/matched} {i18n>bankStatementMatchedLabel} · {/unmatched} {i18n>bankStatementUnmatchedLabel} · {/ignored} {i18n>bankStatementIgnoredLabel}"/>
+                    </OverflowToolbar>
+                </headerToolbar>
+                <columns>
+                    <Column width="3rem"><Text text="{i18n>lineNumber}"/></Column>
+                    <Column><Text text="{i18n>bankStatementMovement}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>amount}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>status}"/></Column>
+                    <Column minScreenWidth="Desktop" demandPopin="true">
+                        <Text text="{i18n>paymentRunDocument}"/>
+                    </Column>
+                    <Column hAlign="End"><Text text="{i18n>action}"/></Column>
+                </columns>
+                <items>
+                    <ColumnListItem>
+                        <cells>
+                            <Text text="{lineNumber}"/>
+                            <ObjectIdentifier title="{= ${counterpartyName} || ${remittanceInformation} }"
+                                              text="{bookingDate} · {endToEndId}"/>
+                            <!-- Signed, because direction is the first thing a
+                                 person checks: money out where money in was
+                                 expected is a different problem from a wrong
+                                 amount. -->
+                            <ObjectNumber number="{path: 'amount', formatter: '.formatter.amount'}"
+                                          unit="{/currency}"
+                                          state="{= ${isCredit} ? 'Success' : 'None' }"
+                                          inverted="false"/>
+                            <ObjectStatus text="{status}"
+                                          state="{path: 'status', formatter: '.formatter.statementLineState'}"/>
+                            <Text text="{= ${documentNumber} ? ${fiscalYear} + '/' + ${documentNumber} + ' (' + ${matchMethod} + ')' : '' }"/>
+                            <HBox justifyContent="End">
+                                <Button text="{i18n>bankStatementMatch}"
+                                        type="Emphasized"
+                                        class="sapUiTinyMarginEnd"
+                                        visible="{= ${status} === 'Unmatched' }"
+                                        press=".onMatch"/>
+                                <Button text="{i18n>bankStatementIgnore}"
+                                        type="Transparent"
+                                        visible="{= ${status} === 'Unmatched' }"
+                                        press=".onIgnore"/>
+                            </HBox>
+                        </cells>
+                    </ColumnListItem>
+                </items>
+            </Table>
+          </VBox>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

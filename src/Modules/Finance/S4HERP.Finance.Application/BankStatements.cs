@@ -621,16 +621,28 @@ public sealed class MatchStatementLineHandler(
                 $"matched to document {line.DocumentNumber}.");
         }
 
+        // Looked up without the status filter, then judged. Filtering on Posted
+        // and reporting "no such document" tells somebody staring at a reversed
+        // document that it does not exist, which sends them looking for a typo
+        // that is not there.
         var header = await db.Set<JournalEntryHeader>()
             .AsNoTracking()
             .SingleOrDefaultAsync(h => h.CompanyCodeId == companyCode.Id
                                        && h.FiscalYear == command.FiscalYear
-                                       && h.DocumentNumber == command.DocumentNumber
-                                       && h.Status == JournalStatus.Posted, ct)
+                                       && h.DocumentNumber == command.DocumentNumber, ct)
             ?? throw new BusinessRuleException(
                 BankStatementErrors.DocumentNotFound,
-                $"No posted document {command.FiscalYear}/{command.DocumentNumber} exists in " +
+                $"No document {command.FiscalYear}/{command.DocumentNumber} exists in " +
                 $"company code {companyCode.Code}.");
+
+        if (header.Status != JournalStatus.Posted)
+        {
+            throw new BusinessRuleException(
+                BankStatementErrors.DocumentNotFound,
+                $"Document {command.FiscalYear}/{command.DocumentNumber} is {header.Status}, " +
+                "so it is not a movement on the account. A reversed payment leaves the bank " +
+                "entry to be matched to something else — often the return the bank sent back.");
+        }
 
         // The document must actually touch this bank account, and for this
         // amount. A reconciliation that lets any document be pinned to any line
@@ -646,10 +658,26 @@ public sealed class MatchStatementLineHandler(
 
         if (bankMovement == 0m)
         {
+            // Two different situations reach here and a person needs to know
+            // which. A document that never touched this account is a wrong
+            // choice; one that touched it and was reversed nets to zero and is
+            // no longer a movement anything can be matched to. Saying "does not
+            // post to this account" for the second is untrue and sends the
+            // reader looking in the wrong place.
+            var touchesAccount = await db.Set<JournalEntryLine>()
+                .AsNoTracking()
+                .AnyAsync(l => l.CompanyCodeId == companyCode.Id
+                               && l.FiscalYear == command.FiscalYear
+                               && l.DocumentNumber == command.DocumentNumber
+                               && l.GLAccountId == statement.HouseBankAccount.GLAccountId, ct);
+
             throw new BusinessRuleException(
                 BankStatementErrors.DocumentNotFound,
-                $"Document {command.FiscalYear}/{command.DocumentNumber} does not post to the " +
-                "bank account this statement is for.");
+                touchesAccount
+                    ? $"Document {command.FiscalYear}/{command.DocumentNumber} nets to zero on " +
+                      "this bank account — it has been reversed — so there is no movement to match."
+                    : $"Document {command.FiscalYear}/{command.DocumentNumber} does not post to " +
+                      "the bank account this statement is for.");
         }
 
         var expected = line.IsCredit ? line.Amount : -line.Amount;

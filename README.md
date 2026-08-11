@@ -19,13 +19,14 @@ An S/4HANA-inspired, web-based ERP system.
 | 3 — [Increment 12](docs/phase3/increment-12-bank-status.md) | Delivered. ISO 20022 pain.002 import: a payment gains a status from the bank, and a refusal can be reversed |
 | 3 — [Increment 13](docs/phase3/increment-13-bank-rejections-inbox.md) | Delivered. The bank rejections inbox: everything the bank refused, across every run |
 | 3 — [Increment 14](docs/phase3/increment-14-bank-statements.md) | Delivered. ISO 20022 camt.053 import, automatic and manual matching, and bank reconciliation |
+| 3 — [Increment 15](docs/phase3/increment-15-bank-reconciliation-screen.md) | Delivered. The bank reconciliation screen: both balances, the difference, and the movements behind it |
 | 4 — [SAPUI5 front end](docs/phase4/README.md) | Delivered on OpenUI5. Launchpad, journal entry, document display, trial balance, English/Khmer. 16/16 browser checks |
 | 5 — [Testing and deployment](docs/phase5/README.md) | Delivered. CI pipeline, architecture tests, deployment-time schema setup, operations guide |
 
-**519 automated checks passing** across four suites, against the container image.
-Modules still to build — the bank reconciliation screen, a bank clearing
-account, dunning, Asset Accounting, Controlling allocations, SE11 and SE16N — are
-designed in the blueprint and listed in each phase report.
+**529 automated checks passing** across four suites, against the container image.
+Modules still to build — a bank clearing account, dunning, Asset Accounting,
+Controlling allocations, SE11 and SE16N — are designed in the blueprint and
+listed in each phase report.
 
 ASP.NET Core 10 over SQL Server 2025, containerised with Docker Compose.
 
@@ -57,7 +58,7 @@ Open <http://localhost:8080/> for the front end, or run the acceptance suites:
 
 ```bash
 ./db/tests/posting-engine.sh                     # 429 posting-engine checks over HTTP
-node ui5/test/ui-acceptance.mjs                  # 71 browser checks
+node ui5/test/ui-acceptance.mjs                  # 81 browser checks
 ./dotnet.sh test tests/S4HERP.ArchitectureTests  # 5 architecture checks
 ```
 

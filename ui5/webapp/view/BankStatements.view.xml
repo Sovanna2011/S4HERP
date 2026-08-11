@@ -1,0 +1,63 @@
+<mvc:View
+    controllerName="s4herp.ui.controller.BankStatements"
+    xmlns="sap.m"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns:f="sap.f">
+    <f:DynamicPage id="bankStatementsPage" headerExpanded="true">
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading><Title text="{i18n>bankStatementsTitle}"/></f:heading>
+                <f:actions>
+                    <Button id="bankStatementsImportButton"
+                            text="{i18n>bankStatementsImport}"
+                            type="Emphasized"
+                            press=".onImport"/>
+                </f:actions>
+                <f:navigationActions>
+                    <Button icon="sap-icon://nav-back" press=".onNavBack" tooltip="{i18n>back}"/>
+                    <Button icon="sap-icon://refresh" press=".onRefresh" tooltip="{i18n>refresh}"/>
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <Text text="{i18n>bankStatementsDescription}"/>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <f:content>
+            <Table id="bankStatementsTable"
+                   items="{/statements}"
+                   noDataText="{i18n>bankStatementsEmpty}">
+                <columns>
+                    <Column><Text text="{i18n>bankStatementsStatement}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>companyCode}"/></Column>
+                    <Column minScreenWidth="Tablet" demandPopin="true"><Text text="{i18n>payingAccount}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>bankStatementsClosing}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>bankStatementsMovements}"/></Column>
+                    <Column hAlign="End"><Text text="{i18n>action}"/></Column>
+                </columns>
+                <items>
+                    <ColumnListItem type="Navigation" press=".onOpen">
+                        <cells>
+                            <ObjectIdentifier title="{statementId}" text="{statementDate}"/>
+                            <Text text="{companyCode}"/>
+                            <Text text="{houseBankAccount}"/>
+                            <ObjectNumber number="{path: 'closingBalance', formatter: '.formatter.signedAmount'}"
+                                          unit="{currency}"/>
+                            <Text text="{lineCount}"/>
+                            <!-- The number that decides whether this statement is
+                                 finished. Zero unmatched is the only state a
+                                 month-end close can accept. -->
+                            <ObjectStatus text="{= ${unmatched} === 0
+                                              ? ${i18n>bankStatementsReconciledLabel}
+                                              : ${i18n>bankStatementsOutstandingLines} }"
+                                          state="{= ${unmatched} === 0 ? 'Success' : 'Warning' }"/>
+                        </cells>
+                    </ColumnListItem>
+                </items>
+            </Table>
+        </f:content>
+    </f:DynamicPage>
+</mvc:View>

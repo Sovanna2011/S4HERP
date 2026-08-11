@@ -32,6 +32,10 @@ sap.ui.define([
         {
             key: "BANK_REJECTIONS", name: "bankRejectionsTile", transactionCode: "FF_5",
             module: "Finance", icon: "sap-icon://alert", route: "bankRejections"
+        },
+        {
+            key: "BANK_STATEMENTS", name: "bankStatementsTile", transactionCode: "FF67",
+            module: "Finance", icon: "sap-icon://passenger-train", route: "bankStatements"
         }
     ];
 

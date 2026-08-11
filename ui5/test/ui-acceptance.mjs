@@ -617,6 +617,108 @@ await page.locator(ID('bankRejections', 'bankRejectionsIncludeResolved')).click(
 check('...and there when they are',
   await textAppears(ID('bankRejections', 'bankRejectionsTable'), 'Creditor account closed'));
 
+console.log('\n== Reconciling a bank statement ==');
+
+// The run executed above has a payment document and a bank file. A camt.053
+// naming that payment plus a bank charge is what a real statement looks like:
+// one movement the system can place and one it cannot.
+const reconRun = await (await fetch(`${BASE}/api/v1/finance/payment-runs/${uiRunId}`,
+  { headers: { 'X-S4HERP-User': 'seed.accountant' } })).json();
+const reconDoc = reconRun.payments[0].paymentDocumentNumber;
+const stamp = String(Date.now()).slice(-8);
+
+await setUser('seed.accountant');
+await open('#/bank-statements');
+await page.waitForSelector(ID('bankStatements', 'bankStatementsTable'), { timeout: 30000 });
+
+await page.locator(ID('bankStatements', 'bankStatementsImportButton')).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill(`<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>UI-MSG-${stamp}</MsgId><CreDtTm>2026-05-31T23:00:00Z</CreDtTm></GrpHdr>
+    <Stmt>
+      <Id>UI-STMT-${stamp}</Id>
+      <CreDtTm>2026-05-31T23:00:00Z</CreDtTm>
+      <Acct><Id><Othr><Id>1000-0000-0001</Id></Othr></Id><Ccy>USD</Ccy></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="USD">0.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="USD">4321.00</Amt><CdtDbtInd>DBIT</CdtDbtInd></Bal>
+      <Ntry>
+        <NtryRef>UI-E1</NtryRef>
+        <Amt Ccy="USD">${reconRun.totalToPay.toFixed(2)}</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-05-11</Dt></BookgDt>
+        <NtryDtls><TxDtls>
+          <Refs><EndToEndId>1000-2026-${reconDoc}</EndToEndId></Refs>
+          <RltdPties><Cdtr><Nm>Mekong Logistics Ltd</Nm></Cdtr></RltdPties>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <NtryRef>UI-E2</NtryRef>
+        <Amt Ccy="USD">22.50</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+        <BookgDt><Dt>2026-05-31</Dt></BookgDt>
+        <AddtlNtryInf>Quarterly account fee</AddtlNtryInf>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>`);
+await page.locator(ID('bankStatements', 'statementImportConfirm')).click();
+
+await page.waitForURL(/#\/bank-statements\/UI-STMT-/, { timeout: 30000 });
+await page.waitForSelector(ID('bankStatement', 'bankStatementLines'), { timeout: 30000 });
+check('Importing opens the statement it just read',
+  await textAppears(ID('bankStatement', 'bankStatementTitle'), `UI-STMT-${stamp}`));
+check('...with the payment matched by end-to-end id',
+  await textAppears(ID('bankStatement', 'bankStatementLines'), 'Matched'));
+check('...and the bank charge left unmatched',
+  await textAppears(ID('bankStatement', 'bankStatementLines'), 'Quarterly account fee'));
+
+// The header carries the two balances and the gap. This is the whole point of
+// the page: a difference read off two screens is a difference nobody reads.
+check('The bank and the ledger are shown side by side',
+  await becomesVisible(ID('bankStatement', 'bankStatementClosing'))
+  && await becomesVisible(ID('bankStatement', 'bankStatementLedger')));
+check('...with the verdict stated, not left to be worked out',
+  await textAppears(ID('bankStatement', 'bankStatementVerdict'), 'Not reconciled'));
+check('...and a warning naming what the candidates are',
+  await becomesVisible(ID('bankStatement', 'bankStatementStrip')));
+
+// Matching is checked server-side; the screen surfaces the refusal rather than
+// pre-empting it.
+const lineRows = ID('bankStatement', 'bankStatementLines') + ' tbody tr';
+await page.locator(lineRows).filter({ hasText: 'Quarterly account fee' })
+  .locator('button').first().click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator(`${ID('bankStatement', 'matchDocument')} input`).fill(String(reconDoc));
+await page.locator(ID('bankStatement', 'matchConfirm')).click();
+await page.waitForSelector('.sapMMessageBox', { state: 'visible', timeout: 30000 });
+// That payment was reversed by the pain.002 block above, so it is no longer a
+// movement on the account. The refusal has to say *that* — reporting "no such
+// document" for a document that plainly exists sends the reader hunting for a
+// typo that is not there.
+check('Matching the charge to a reversed payment is refused, and says why',
+  /Reversed/i.test(await page.locator('.sapMMessageBox').innerText()),
+  (await page.locator('.sapMMessageBox').innerText()).slice(0, 140));
+await page.locator('.sapMMessageBox button').first().click();
+
+// Setting aside needs a reason, and the dialog will not send an empty one.
+await page.locator(lineRows).filter({ hasText: 'Quarterly account fee' })
+  .locator('button').nth(1).click();
+await page.waitForSelector('.sapMDialog', { state: 'visible', timeout: 15000 });
+await page.locator('.sapMDialog textarea').fill('Bank charge; posted in the monthly fee journal.');
+await page.locator('.sapMDialog .sapMDialogFooter button, .sapMDialog footer button').first().click();
+
+check('Setting the charge aside closes the last open line',
+  await textAppears(ID('bankStatement', 'bankStatementCounts'), '0 unmatched'));
+check('...recorded as set aside rather than matched',
+  await textAppears(ID('bankStatement', 'bankStatementLines'), 'Ignored'));
+
+await open('#/bank-statements');
+await page.waitForSelector(ID('bankStatements', 'bankStatementsTable'), { timeout: 30000 });
+check('...and the list says the statement has nothing outstanding',
+  await textAppears(ID('bankStatements', 'bankStatementsTable'), 'Nothing outstanding'));
+
 console.log('\n== Internationalisation ==');
 await page.goto(`${BASE}/index.html?sap-language=km&run=km#/reports/trial-balance`, { waitUntil: 'networkidle' });
 await page.waitForSelector(ID('trialBalance', 'balanceTable'), { timeout: 30000 });

@@ -104,6 +104,21 @@ sap.ui.define(["sap/ui/core/format/NumberFormat"], (NumberFormat) => {
             return String(value).replace("T", " ").slice(0, 16);
         },
 
+        /**
+         * A statement line against the ledger. Unmatched is a warning rather than
+         * an error: it is work outstanding, not a fault. Ignored is neutral —
+         * somebody looked and decided, which is a finished state even though
+         * nothing was matched.
+         */
+        statementLineState(status) {
+            switch (status) {
+                case "Matched": return "Success";
+                case "Unmatched": return "Warning";
+                case "Ignored": return "None";
+                default: return "None";
+            }
+        },
+
         stepDecisionState(decision) {
             switch (decision) {
                 case "Approved": return "Success";

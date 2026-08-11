@@ -107,6 +107,16 @@
           "pattern": "bank-rejections",
           "name": "bankRejections",
           "target": "bankRejections"
+        },
+        {
+          "pattern": "bank-statements",
+          "name": "bankStatements",
+          "target": "bankStatements"
+        },
+        {
+          "pattern": "bank-statements/{statementId}",
+          "name": "bankStatement",
+          "target": "bankStatement"
         }
       ],
       "targets": {
@@ -154,6 +164,16 @@
           "viewId": "bankRejections",
           "viewName": "BankRejections",
           "viewLevel": 2
+        },
+        "bankStatements": {
+          "viewId": "bankStatements",
+          "viewName": "BankStatements",
+          "viewLevel": 2
+        },
+        "bankStatement": {
+          "viewId": "bankStatement",
+          "viewName": "BankStatement",
+          "viewLevel": 3
         }
       }
     }
